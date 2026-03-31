@@ -1,0 +1,11 @@
+__pycache__/
+*.exe_extracted/
+gpi_api_key.txt
+gpi_api_keys.json
+gpi_events.jsonl
+logs.jsonl
+history.txt
+history_images/
+python312/
+python312.zip
+verify_fix_*.py
