@@ -183,3 +183,83 @@ def call_gemini_stream(image_b64, mime_type, api_key, instruction, model_name, t
     except Exception as e:
         raise RuntimeError(f"API 스트리밍 오류: {str(e)}")
 
+def call_gemini_text(user_text, api_key, instruction, model_name, thinking_level=None):
+    url = API_URL_TEMPLATE.format(model=model_name)
+    body = {
+        "contents": [{
+            "parts": [
+                {"text": instruction},
+                {"text": user_text}
+            ]
+        }],
+        "generationConfig": {"temperature": 0.5, "topP": 0.9, "topK": 32}
+    }
+    if thinking_level:
+        body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking_level}
+    
+    data = json.dumps(body).encode("utf-8")
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+            candidate = res_data.get("candidates", [{}])[0]
+            parts = candidate.get("content", {}).get("parts", [])
+            text = "".join([p.get("text", "") for p in parts if p.get("text")])
+            return text.strip()
+    except Exception as e:
+        raise RuntimeError(f"API 호출 오류 (Text): {str(e)}")
+
+def call_gemini_text_stream(user_text, api_key, instruction, model_name, thinking_level=None, on_chunk=None, cancel_check=None):
+    url = API_STREAM_URL_TEMPLATE.format(model=model_name)
+    body = {
+        "contents": [{
+            "parts": [
+                {"text": instruction},
+                {"text": user_text}
+            ]
+        }],
+        "generationConfig": {"temperature": 0.5}
+    }
+    if thinking_level:
+        body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking_level}
+        
+    data = json.dumps(body).encode("utf-8")
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    
+    combined = ""
+    raw_buffer = ""
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            while True:
+                if cancel_check and cancel_check():
+                    raise RuntimeError(CANCELLED_MESSAGE)
+                chunk = response.read(4096)
+                if not chunk:
+                    break
+                
+                raw_buffer += chunk.decode("utf-8", errors="ignore")
+                while "\n" in raw_buffer:
+                    line, raw_buffer = raw_buffer.split("\n", 1)
+                    line = line.strip()
+                    if not line or not line.startswith("data:"):
+                        continue
+                    
+                    payload = line[5:].strip()
+                    try:
+                        data_json = json.loads(payload)
+                        candidate = data_json.get("candidates", [{}])[0]
+                        parts = candidate.get("content", {}).get("parts", [])
+                        for p in parts:
+                            if p.get("text"):
+                                piece = p.get("text")
+                                combined += piece
+                                if on_chunk:
+                                    on_chunk(piece)
+                    except json.JSONDecodeError:
+                        pass
+            return combined.strip()
+    except Exception as e:
+        raise RuntimeError(f"API 스트리밍 오류 (Text): {str(e)}")

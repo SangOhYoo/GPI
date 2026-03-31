@@ -23,7 +23,10 @@ from ..core.image import (
     read_istream_all
 )
 from ..core.api import download_image_from_url, validate_model_access, fetch_available_models, is_url
-from ..core.prompt import generate_prompt_logic, append_history, load_history, save_all_history, delete_history_item_files
+from ..core.prompt import (
+    generate_prompt_logic, append_history, load_history, 
+    save_all_history, delete_history_item_files
+)
 from ..core.utils import log_event
 import pythoncom
 import win32con
@@ -38,13 +41,16 @@ class PromptApp:
         
         # State
         self.image_source = None
-        self.model_name = "gemini-flash-latest" # User preferred default
-        self.model_thinking_level = None
+        self.preview_image = None
         self.generation_in_progress = False
-        self.download_in_progress = False
         self.cancel_requested = False
+        self.image_history_indices = []
+        self.text_history_indices = []
+        self.model_name = "gemini-1.5-flash"
+        self.model_thinking_level = 0
+        self.download_in_progress = False
         self.history = load_history()
-        
+
         # Variable Initialization
         self.model_var = tk.StringVar(value=self.model_name)
         self.api_key_name_var = tk.StringVar(value="Default")
@@ -56,6 +62,10 @@ class PromptApp:
         self.high_fidelity_var = tk.BooleanVar(value=True)
         self.min_words_var = tk.IntVar(value=HIGH_FIDELITY_MIN_WORDS)
         self.max_words_var = tk.IntVar(value=HIGH_FIDELITY_MAX_WORDS)
+        
+        # History State
+        self.image_history_indices = []
+        self.text_history_indices = []
         
         # OLE Drag and Drop State
         self._win_drop_data_obj = None
@@ -153,34 +163,80 @@ class PromptApp:
         middle_paned.add(left_side, weight=1)
         middle_paned.add(right_side, weight=2)
         
-        # --- Left Side: Input ---
+        # --- Left Side: Input (with Tabs) ---
+        self.input_notebook = ttk.Notebook(left_side)
+        self.input_notebook.pack(fill="both", expand=True)
+        
+        # Tab 1: Image Analysis
+        self.image_tab = ttk.Frame(self.input_notebook, padding=SPACING["md"])
+        self.input_notebook.add(self.image_tab, text="이미지 분석")
+        
         # Drag & Drop Zone
         self.drop_label = tk.Label(
-            left_side, text="여기에 이미지를 드래그하거나\n클립보드 이미지를 붙여넣으세요 (Ctrl+V)",
+            self.image_tab, text="여기에 이미지를 드래그하거나\n클립보드 이미지를 붙여넣으세요 (Ctrl+V)",
             background=COLORS["surface_alt"], foreground=COLORS["text_secondary"],
-            relief="groove", bd=1, height=10
+            relief="groove", bd=1, height=8
         )
         self.drop_label.pack(fill="x", pady=(0, SPACING["md"]))
         self.drop_label.bind("<Enter>", self.on_drop_hover)
         self.drop_label.bind("<Leave>", self.on_drop_leave)
         
-        file_frame = ttk.Frame(left_side)
+        file_frame = ttk.Frame(self.image_tab)
         file_frame.pack(fill="x")
         ttk.Button(file_frame, text="이미지 파일 선택", command=self.on_pick_file).pack(side="left")
         
         self.file_path_var = tk.StringVar(value="선택된 파일 없음")
-        ttk.Label(left_side, textvariable=self.file_path_var, font=FONTS["main"], foreground=COLORS["text_muted"]).pack(fill="x", pady=SPACING["xs"])
+        ttk.Label(self.image_tab, textvariable=self.file_path_var, font=FONTS["main"], foreground=COLORS["text_muted"]).pack(fill="x", pady=SPACING["xs"])
         
+        # Preview Area inside Image Tab
+        self.preview_frame = ttk.LabelFrame(self.image_tab, text="이미지 미리보기", style="Card.TLabelframe")
+        self.preview_frame.pack(fill="both", expand=True, pady=SPACING["md"])
+        
+        self.preview_label = tk.Label(self.preview_frame, background=COLORS["surface_alt"])
+        self.preview_label.pack(fill="both", expand=True, padx=SPACING["xs"], pady=SPACING["xs"])
+
+        # Tab 2: Text Analysis [NEW]
+        self.text_tab = ttk.Frame(self.input_notebook)
+        self.input_notebook.add(self.text_tab, text="텍스트 분석")
+        
+        ttk.Label(self.text_tab, text="소설 구절 또는 추상적 묘사 입력:", font=FONTS["bold"]).pack(anchor="w", pady=(0, SPACING["xs"]))
+        
+        text_input_container = ttk.Frame(self.text_tab)
+        text_input_container.pack(fill="both", expand=True)
+        
+        self.text_input = tk.Text(text_input_container, wrap="word", height=12, font=FONTS["main"], bd=1)
+        self.text_input.pack(side="left", fill="both", expand=True)
+        
+        text_scroll = ttk.Scrollbar(text_input_container, orient="vertical", command=self.text_input.yview)
+        text_scroll.pack(side="right", fill="y")
+        self.text_input.config(yscrollcommand=text_scroll.set)
+        
+        text_btn_frame = ttk.Frame(self.text_tab)
+        text_btn_frame.pack(fill="x", pady=SPACING["sm"])
+        ttk.Button(text_btn_frame, text="텍스트 파일 불러오기", command=self.on_pick_text_file).pack(side="left")
+        ttk.Button(text_btn_frame, text="내용 비우기", command=lambda: self.text_input.delete("1.0", "end")).pack(side="right")
+
+        # Bottom Options (Shared or common area)
+        bottom_options = ttk.Frame(left_side)
+        bottom_options.pack(fill="x", side="bottom")
+
         # Options
-        opt_frame = ttk.LabelFrame(left_side, text="추가 옵션", style="Card.TLabelframe")
+        opt_frame = ttk.LabelFrame(bottom_options, text="추가 옵션", style="Card.TLabelframe")
         opt_frame.pack(fill="x", pady=SPACING["md"])
         
         ttk.Label(opt_frame, text="키워드 (선택):").pack(anchor="w", padx=SPACING["sm"])
         self.keyword_var = tk.StringVar()
-        self.keyword_entry = ttk.Entry(opt_frame, textvariable=self.keyword_var)
-        self.keyword_entry.pack(fill="x", padx=SPACING["sm"], pady=(0, SPACING["sm"]))
+        # Use plain tk.Entry for better IME compatibility on Windows with custom themes
+        self.keyword_entry = tk.Entry(
+            opt_frame, textvariable=self.keyword_var, font=FONTS["main"],
+            bg=COLORS["surface_alt"], fg=COLORS["text_primary"],
+            insertbackground=COLORS["text_primary"], relief="flat",
+            highlightthickness=1, highlightbackground=COLORS["surface_alt_strong"],
+            highlightcolor=COLORS["accent"]
+        )
+        self.keyword_entry.pack(fill="x", padx=SPACING["sm"], pady=(0, SPACING["sm"]), ipady=4)
         
-        # High Fidelity Checkbox
+        # High Fidelity Checkbox (Mainly for image analysis)
         self.hf_check = ttk.Checkbutton(
             opt_frame, text="초고정밀 분석 (99.99% 재현)", 
             variable=self.high_fidelity_var, 
@@ -201,20 +257,13 @@ class PromptApp:
         self.max_spin.pack(side="left", padx=SPACING["xs"])
         
         # Action Buttons
-        btn_frame = ttk.Frame(left_side)
-        btn_frame.pack(fill="x", pady=SPACING["md"])
-        self.generate_button = ttk.Button(btn_frame, text="프롬프트 생성 (F1)", style="Accent.TButton", command=self.on_generate)
+        btn_frame = ttk.Frame(bottom_options)
+        btn_frame.pack(fill="x", pady=(0, SPACING["md"]))
+        self.generate_button = ttk.Button(btn_frame, text="프롬프트 생성 / 분석 실행", style="Accent.TButton", command=self.on_smart_generate)
         self.generate_button.pack(fill="x", pady=SPACING["xs"])
         
         self.cancel_button = ttk.Button(btn_frame, text="중지", state="disabled", command=self.on_cancel)
         self.cancel_button.pack(fill="x")
-        
-        # Preview Area at the bottom
-        self.preview_frame = ttk.LabelFrame(left_side, text="이미지 미리보기", style="Card.TLabelframe")
-        self.preview_frame.pack(side="bottom", fill="x", pady=(SPACING["md"], 0))
-        
-        self.preview_label = tk.Label(self.preview_frame, background=COLORS["surface_alt"])
-        self.preview_label.pack(fill="both", expand=True, padx=SPACING["xs"], pady=SPACING["xs"])
         
         # --- Right Side: Output & History ---
         # Vertical split for English and Korean
@@ -261,23 +310,44 @@ class PromptApp:
         history_frame = ttk.LabelFrame(right_side, text="최근 히스토리", style="Card.TLabelframe")
         history_frame.pack(fill="both", expand=True, pady=(SPACING["md"], 0))
         
-        # Tools/Actions frame above the list for visibility
+        # Tools/Actions frame
         btns_frame = ttk.Frame(history_frame)
         btns_frame.pack(fill="x", padx=SPACING["sm"], pady=SPACING["xs"])
         ttk.Button(btns_frame, text="선택 항목 삭제 (Del)", command=self.on_delete_history).pack(side="right")
         
-        list_container = ttk.Frame(history_frame)
-        list_container.pack(fill="both", expand=True, padx=SPACING["sm"], pady=(0, SPACING["sm"]))
+        # History Tabs
+        self.history_notebook = ttk.Notebook(history_frame)
+        self.history_notebook.pack(fill="both", expand=True, padx=SPACING["sm"], pady=(0, SPACING["sm"]))
         
-        self.history_list = tk.Listbox(list_container, height=8) # Slightly smaller height to balance
-        self.history_list.pack(side="left", fill="both", expand=True)
+        # Tab 1: Image History
+        self.image_hist_tab = ttk.Frame(self.history_notebook)
+        self.history_notebook.add(self.image_hist_tab, text="이미지")
         
-        scrollbar = ttk.Scrollbar(list_container, orient="vertical", command=self.history_list.yview)
-        scrollbar.pack(side="right", fill="y")
-        self.history_list.configure(yscrollcommand=scrollbar.set)
+        self.image_history_list = tk.Listbox(self.image_hist_tab, height=8)
+        self.image_history_list.pack(side="left", fill="both", expand=True)
+        img_scroll = ttk.Scrollbar(self.image_hist_tab, orient="vertical", command=self.image_history_list.yview)
+        img_scroll.pack(side="right", fill="y")
+        self.image_history_list.configure(yscrollcommand=img_scroll.set)
         
-        self.history_list.bind("<<ListboxSelect>>", self.on_history_select)
-        self.history_list.bind("<Delete>", lambda e: self.on_delete_history())
+        # Tab 2: Text History
+        self.text_hist_tab = ttk.Frame(self.history_notebook)
+        self.history_notebook.add(self.text_hist_tab, text="텍스트")
+        
+        self.text_history_list = tk.Listbox(self.text_hist_tab, height=8)
+        self.text_history_list.pack(side="left", fill="both", expand=True)
+        txt_scroll = ttk.Scrollbar(self.text_hist_tab, orient="vertical", command=self.text_history_list.yview)
+        txt_scroll.pack(side="right", fill="y")
+        self.text_history_list.configure(yscrollcommand=txt_scroll.set)
+        
+        # Bindings
+        self.image_history_list.bind("<<ListboxSelect>>", lambda e: self.on_history_select(e, "image"))
+        self.text_history_list.bind("<<ListboxSelect>>", lambda e: self.on_history_select(e, "text"))
+        self.image_history_list.bind("<Delete>", lambda e: self.on_delete_history())
+        self.text_history_list.bind("<Delete>", lambda e: self.on_delete_history())
+        
+        # Link Notebooks
+        self.input_notebook.bind("<<NotebookTabChanged>>", self.on_input_tab_changed)
+        self.history_notebook.bind("<<NotebookTabChanged>>", self.on_history_tab_changed)
         
         # Start drop queue poller
         self.root.after(100, self._poll_drop_queue)
@@ -298,7 +368,7 @@ class PromptApp:
         self.root.update_idletasks()
         self._win_target, self._win_com_target = setup_dnd(self.root, self.drop_label, self)
         self.root.bind_all("<Control-v>", lambda e: self.on_paste())
-        self.root.bind_all("<F1>", lambda e: self.on_generate())
+        self.root.bind_all("<F1>", lambda e: self.on_smart_generate())
     
     def on_high_fidelity_toggle(self):
         if self.high_fidelity_var.get():
@@ -498,57 +568,101 @@ class PromptApp:
         self.cancel_requested = True
         self.status_var.set("중단 요청 중...")
 
-    def on_history_select(self, event):
-        idx = self.history_list.curselection()
-        if idx:
-            # Historical list is reversed, so we must calculate the correct index
-            real_idx = len(self.history) - 1 - idx[0]
-            if real_idx < 0 or real_idx >= len(self.history):
-                return
-            entry = self.history[real_idx]
-            self.output_text.delete("1.0", "end")
-            self.output_text.insert("1.0", entry["en"])
-            self.translation_text.delete("1.0", "end")
-            self.translation_text.insert("1.0", entry["ko"])
-            self.translation_zh_text.delete("1.0", "end")
-            self.translation_zh_text.insert("1.0", entry.get("zh", ""))
+    def on_history_select(self, event, list_type="image"):
+        listbox = self.image_history_list if list_type == "image" else self.text_history_list
+        idx_tuple = listbox.curselection()
+        if not idx_tuple:
+            return
             
-            # Restore image if path exists
-            image_rel_path = entry.get("image_path")
-            if image_rel_path:
-                from ..core.config import BASE_DIR
-                full_path = BASE_DIR / image_rel_path
-                if full_path.exists():
-                    self.set_image_source({"type": "file", "value": str(full_path)})
+        idx = idx_tuple[0]
+        # Get the real index in self.history
+        mappings = self.image_history_indices if list_type == "image" else self.text_history_indices
+        if idx >= len(mappings):
+            return
             
-            self.status_var.set("히스토리 항목과 이미지가 복원되었습니다.")
+        real_idx = mappings[idx]
+        entry = self.history[real_idx]
+        
+        self.output_text.delete("1.0", "end")
+        self.output_text.insert("1.0", entry["en"])
+        self.translation_text.delete("1.0", "end")
+        self.translation_text.insert("1.0", entry["ko"])
+        self.translation_zh_text.delete("1.0", "end")
+        self.translation_zh_text.insert("1.0", entry.get("zh", ""))
+        
+        # Switch input tab
+        if list_type == "image":
+            self.input_notebook.select(0)
+        else:
+            self.input_notebook.select(1)
+            # Restore original text
+            orig_text = entry.get("input_text", "")
+            if orig_text:
+                self.text_input.delete("1.0", "end")
+                self.text_input.insert("1.0", orig_text)
+
+        # Restore image if path exists
+        image_rel_path = entry.get("image_path")
+        if image_rel_path:
+            from ..core.config import BASE_DIR
+            full_path = BASE_DIR / image_rel_path
+            if full_path.exists():
+                self.set_image_source({"type": "file", "value": str(full_path)})
+            else:
+                self.preview_label.config(image="")
+                self.preview_image = None
+        else:
+            self.preview_label.config(image="")
+            self.preview_image = None
+            self.file_path_var.set("텍스트 분석 내역")
+        
+        self.status_var.set(f"{'이미지' if list_type == 'image' else '텍스트'} 히스토리 항목이 복원되었습니다.")
 
     def on_delete_history(self):
-        idx = self.history_list.curselection()
-        if not idx:
+        active_tab = self.history_notebook.index("current")
+        list_type = "image" if active_tab == 0 else "text"
+        listbox = self.image_history_list if list_type == "image" else self.text_history_list
+        mappings = self.image_history_indices if list_type == "image" else self.text_history_indices
+        
+        idx_tuple = listbox.curselection()
+        if not idx_tuple:
             return
         
         if not messagebox.askyesno("확인", "선택한 히스토리 항목을 삭제하시겠습니까?"):
             return
             
-        # Historical list is reversed
-        real_idx = len(self.history) - 1 - idx[0]
+        idx = idx_tuple[0]
+        real_idx = mappings[idx]
+        
         if 0 <= real_idx < len(self.history):
             entry = self.history[real_idx]
+            from ..core.prompt import delete_history_item_files, save_all_history
             # Delete associated image file
             delete_history_item_files(entry)
             
             del self.history[real_idx]
             if save_all_history(self.history):
                 self.refresh_history_list()
-                self.status_var.set("히스토리 항목과 이미지가 삭제되었습니다.")
+                self.status_var.set("히스토리 항목이 삭제되었습니다.")
             else:
                 messagebox.showerror("오류", "히스토리 파일 저장 중 오류가 발생했습니다.")
 
     def refresh_history_list(self):
-        self.history_list.delete(0, "end")
-        for h in reversed(self.history):
-            self.history_list.insert("end", h["en"][:100] + "...")
+        self.image_history_list.delete(0, "end")
+        self.text_history_list.delete(0, "end")
+        self.image_history_indices = []
+        self.text_history_indices = []
+        
+        # We need to process in reversed order to match the visual "most recent first"
+        for i in range(len(self.history) - 1, -1, -1):
+            h = self.history[i]
+            label = h["en"][:100] + "..."
+            if h.get("image_path"):
+                self.image_history_list.insert("end", label)
+                self.image_history_indices.append(i)
+            else:
+                self.text_history_list.insert("end", label)
+                self.text_history_indices.append(i)
 
     def on_drop_hover(self, event=None):
         self.drop_label.configure(background=COLORS["surface_alt_strong"], relief="ridge", bd=2)
@@ -787,3 +901,132 @@ class PromptApp:
             log_event("preview_error", {"error": str(e)})
             self.preview_label.config(image="")
             self.preview_image = None
+
+    def on_input_tab_changed(self, event):
+        """Syncs history notebook tab when input notebook tab changes."""
+        if not hasattr(self, 'history_notebook'):
+            return
+        # Only process if triggered by the notebook itself, not a child
+        if event.widget != self.input_notebook:
+            return
+            
+        try:
+            curr_idx = self.input_notebook.index("current")
+            if self.history_notebook.index("current") != curr_idx:
+                # Use after_idle to avoid disrupting the current event flow
+                self.root.after_idle(lambda: self.history_notebook.select(curr_idx))
+        except Exception:
+            pass
+
+    def on_history_tab_changed(self, event):
+        """Syncs input notebook tab when history notebook tab changes."""
+        if not hasattr(self, 'input_notebook'):
+            return
+        if event.widget != self.history_notebook:
+            return
+            
+        try:
+            curr_idx = self.history_notebook.index("current")
+            if self.input_notebook.index("current") != curr_idx:
+                self.root.after_idle(lambda: self.input_notebook.select(curr_idx))
+        except Exception:
+            pass
+
+    def _poll_drop_queue(self):
+        """Legacy poller, no longer performs heavy lifting to ensure IME stability."""
+        # Frequent polling can interfere with IME in some Tkinter versions
+        self.root.after(2000, self._poll_drop_queue)
+    def on_smart_generate(self):
+        """Dispatches to either image or text generation based on active tab."""
+        active_tab = self.input_notebook.index("current")
+        if active_tab == 0: # Image Tab
+            self.on_generate()
+        else: # Text Tab
+            self.on_generate_from_text()
+
+    def on_pick_text_file(self):
+        path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt;*.md;*.log")])
+        if path:
+            try:
+                content = Path(path).read_text(encoding="utf-8")
+                self.text_input.delete("1.0", "end")
+                self.text_input.insert("1.0", content)
+                self.status_var.set(f"텍스트 파일 로드 완료: {Path(path).name}")
+            except Exception as e:
+                messagebox.showerror("오류", f"파일을 읽을 수 없습니다: {e}")
+
+    def on_generate_from_text(self):
+        if self.generation_in_progress:
+            return
+            
+        text_content = self.text_input.get("1.0", "end-1c").strip()
+        if not text_content:
+            messagebox.showwarning("알림", "분석할 텍스트를 입력하세요.")
+            return
+
+        key_name = self.api_key_name_var.get()
+        api_key = get_api_key(key_name)
+        if not api_key:
+            messagebox.showwarning("알림", "사용할 API 키를 선택하거나 설정하세요.")
+            return
+
+        self.set_busy(True)
+        self.output_text.delete("1.0", "end")
+        self.translation_text.delete("1.0", "end")
+        self.translation_zh_text.delete("1.0", "end")
+
+        def worker():
+            try:
+                from ..core.prompt import generate_from_text_logic
+                
+                # Unified streaming handler (similar to image)
+                current_tag = "en"
+                
+                def chunk_handler(chunk):
+                    nonlocal current_tag
+                    if "[KOREAN]" in chunk:
+                        parts = chunk.split("[KOREAN]")
+                        if parts[0].strip():
+                            self.root.after(0, lambda p=parts[0]: self.output_text.insert("end", p))
+                        current_tag = "ko"
+                        self.root.after(0, lambda: self.translation_text.delete("1.0", "end"))
+                        if len(parts) > 1 and parts[1].strip():
+                            self.root.after(0, lambda p=parts[1]: self.translation_text.insert("end", p))
+                    elif "[CHINESE]" in chunk:
+                        parts = chunk.split("[CHINESE]")
+                        if parts[0].strip():
+                            self.root.after(0, lambda p=parts[0]: self.translation_text.insert("end", p))
+                        current_tag = "zh"
+                        self.root.after(0, lambda: self.translation_zh_text.delete("1.0", "end"))
+                        if len(parts) > 1 and parts[1].strip():
+                            self.root.after(0, lambda p=parts[1]: self.translation_zh_text.insert("end", p))
+                    else:
+                        clean_chunk = chunk.replace("[ENGLISH]", "")
+                        if current_tag == "en":
+                            self.root.after(0, lambda c=clean_chunk: self.output_text.insert("end", c))
+                        elif current_tag == "ko":
+                            self.root.after(0, lambda c=clean_chunk: self.translation_text.insert("end", c))
+                        else:
+                            self.root.after(0, lambda c=clean_chunk: self.translation_zh_text.insert("end", c))
+                
+                result, count = generate_from_text_logic(
+                    text_content, api_key,
+                    self.model_name, self.model_thinking_level,
+                    self.keyword_var.get(),
+                    on_chunk=chunk_handler,
+                    cancel_check=lambda: self.cancel_requested
+                )
+                
+                # Store original text in result
+                result["input_text"] = text_content
+                
+                # We reuse on_success but need a mock image_source or handle it
+                # Actually, let's create a special source for text
+                text_source = {"type": "text_input", "value": text_content[:50] + "...", "name": "Text Input"}
+                self.image_source = text_source # Temporarily to fit on_success / append_history
+                
+                self.root.after(0, lambda: self.on_success(result, count))
+            except Exception as e:
+                self.root.after(0, lambda err=str(e): self.on_error(err))
+
+        threading.Thread(target=worker, daemon=True).start()

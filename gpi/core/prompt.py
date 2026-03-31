@@ -66,11 +66,12 @@ def append_history(result, image_source=None):
         entry = {
             "en": result["en"].replace("\n", " ").strip(),
             "ko": result["ko"].replace("\n", " ").strip(),
-            "zh": result.get("zh", "").replace("\n", " ").strip()
+            "zh": result.get("zh", "").replace("\n", " ").strip(),
+            "input_text": result.get("input_text", "")
         }
         
-        # Save image if provided
-        if image_source:
+        # Save image if provided and it's an image type
+        if image_source and image_source.get("type") not in ["text_input"]:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             img_filename = f"hist_{timestamp}.png"
             img_path = HISTORY_IMAGES_DIR / img_filename
@@ -189,3 +190,80 @@ def generate_prompt_logic(image_data, mime_type, api_key, model_name, thinking_l
     log_event("generate_success", {"model": model_name, "word_count": word_count, "multilingual": True})
     return {"en": en_part, "ko": ko_part, "zh": zh_part}, word_count
 
+def build_text_to_prompt_instruction(keyword_text=''):
+    base = (
+        "You are an expert visual translator and prompt engineer for Z-Image Turbo (based on Qwen 3.4B/Flux). "
+        "Your task is to take abstract or narrative text (like a scene from a novel) and transform it into a highly detailed, structured visual prompt. "
+        "\n\n[Prompt Structure Requirements]\n"
+        "1. Core Subject: Define the character or main object with physical precision (features, clothing, pose, expression).\n"
+        "2. Environment & Background: Describe the setting, architecture, nature, and depth.\n"
+        "3. Composition & Camera: Specify camera angle (e.g., eye-level, cinematic wide shot), focal length, and framing.\n"
+        "4. Lighting & Color: Detail the light sources, shadows, color palette, and atmosphere.\n"
+        "5. Technical Style: Enhance with high-end rendering terms (e.g., 'hyper-realistic', '8k', 'soft bokeh', 'volumetric lighting').\n"
+        "\n\n[Instruction]\n"
+        "- Convert abstract metaphors into concrete visual elements.\n"
+        "- Write the final prompt as a single, flowing technical paragraph.\n"
+        "- Synthesize the narrative essence into a breathtaking visual masterpiece description."
+    )
+    
+    keyword_text = (keyword_text or '').strip()
+    if keyword_text:
+        base += f"\n\nUser keyword(s) to emphasize: {keyword_text}."
+
+    instr = base + (
+        "\n\n"
+        "And you MUST provide the output in the following format strictly:\n"
+        "[ENGLISH]\n"
+        "(Detailed Structured English prompt here)\n\n"
+        "[KOREAN]\n"
+        "(Korean translation here)\n\n"
+        "[CHINESE]\n"
+        "(Chinese translation here)"
+    )
+    return instr
+
+def generate_from_text_logic(text_input, api_key, model_name, thinking_level, keyword_text,
+                             on_chunk=None, cancel_check=None):
+    instruction = build_text_to_prompt_instruction(keyword_text=keyword_text)
+    
+    # Text-only input to Gemini
+    # We use a similar structure to image, but without the image part.
+    # We'll pass the user text as part of the query.
+    user_query = f"Input Text to Analyze:\n\"\"\"\n{text_input}\n\"\"\""
+    
+    # We need a call_gemini variant that doesn't require an image.
+    # Let's use the existing one but pass a flag or handle empty image.
+    # Actually, let's update api.py or just call call_gemini_text if it exists.
+    # Looking at api.py, call_gemini expects image_b64. I should add a text-only version.
+    
+    from .api import call_gemini_text_stream, call_gemini_text
+    
+    if on_chunk:
+        full_text = call_gemini_text_stream(user_query, api_key, instruction, model_name, thinking_level, on_chunk, cancel_check)
+    else:
+        full_text = call_gemini_text(user_query, api_key, instruction, model_name, thinking_level)
+    
+    if cancel_check and cancel_check():
+        raise RuntimeError(CANCELLED_MESSAGE)
+    
+    en_part = ""
+    ko_part = ""
+    zh_part = ""
+    
+    if "[ENGLISH]" in full_text and "[KOREAN]" in full_text:
+        parts = full_text.split("[KOREAN]")
+        en_part = parts[0].replace("[ENGLISH]", "").strip()
+        
+        remainder = parts[1]
+        if "[CHINESE]" in remainder:
+            sub_parts = remainder.split("[CHINESE]")
+            ko_part = sub_parts[0].strip()
+            zh_part = sub_parts[1].strip()
+        else:
+            ko_part = remainder.strip()
+    else:
+        en_part = full_text
+    
+    word_count = extract_word_count(en_part)
+    log_event("generate_text_success", {"model": model_name, "word_count": word_count})
+    return {"en": en_part, "ko": ko_part, "zh": zh_part}, word_count
