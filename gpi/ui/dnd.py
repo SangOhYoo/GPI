@@ -13,12 +13,17 @@ try:
     CF_URLW = win32clipboard.RegisterClipboardFormat("UniformResourceLocatorW")
     CF_URLA = win32clipboard.RegisterClipboardFormat("UniformResourceLocator")
     CF_PNG = win32clipboard.RegisterClipboardFormat("PNG")
+    CF_WEBP = win32clipboard.RegisterClipboardFormat("webp")
     CF_DIB = 8 # win32con.CF_DIB
 except ImportError:
     WIN_DND_AVAILABLE = False
     CF_FILEDESCRIPTORW = None
     CF_FILEDESCRIPTORA = None
     CF_FILECONTENTS = None
+    CF_URLW = None
+    CF_URLA = None
+    CF_PNG = None
+    CF_WEBP = None
 
 class WindowsDropTarget:
     _com_interfaces_ = [pythoncom.IID_IDropTarget] if WIN_DND_AVAILABLE else []

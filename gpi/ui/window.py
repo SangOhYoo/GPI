@@ -9,7 +9,7 @@ from .dialogs import ApiKeyDialog
 from .dnd import (
     setup_dnd, get_image_from_clipboard, WIN_DND_AVAILABLE,
     CF_FILEDESCRIPTORW, CF_FILEDESCRIPTORA, CF_FILECONTENTS,
-    CF_URLW, CF_URLA, CF_PNG, CF_DIB
+    CF_URLW, CF_URLA, CF_PNG, CF_WEBP, CF_DIB
 )
 from ..core.config import (
     MODEL_OPTIONS, MODEL_THINKING_LEVELS, get_api_key, 
@@ -361,6 +361,7 @@ class PromptApp:
             "url_w": (CF_URLW, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
             "url_a": (CF_URLA, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
             "png": (CF_PNG, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
+            "webp": (CF_WEBP, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
             "dib": (CF_DIB, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
             "text_w": (win32con.CF_UNICODETEXT, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
             "text_a": (win32con.CF_TEXT, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL)
@@ -709,7 +710,7 @@ class PromptApp:
         except Exception:
             pass
         finally:
-            self.root.after(100, self._poll_drop_queue)
+            self.root.after(300, self._poll_drop_queue)
 
     def _process_win_unmarshal(self, stream_ptr):
         try:
@@ -738,15 +739,16 @@ class PromptApp:
                             })
                             return
             
-            # 2. Try Direct Formats (PNG, DIB)
-            for fmt_key in ["png", "dib"]:
+            # 2. Try Direct Formats (PNG, WebP, DIB)
+            for fmt_key in ["png", "webp", "dib"]:
                 fmt = self._win_drop_formats.get(fmt_key)
                 if self.win_drop_query_format(data_obj, fmt):
                     try:
                         stg = data_obj.GetData(fmt)
                         raw = bytes(stg.data)
-                        if fmt_key == "png":
-                            self.set_image_source({"type": "drop_data", "value": raw, "mime_type": "image/png", "name": "dropped.png"})
+                        if fmt_key == "png" or fmt_key == "webp":
+                            mime = "image/png" if fmt_key == "png" else "image/webp"
+                            self.set_image_source({"type": "drop_data", "value": raw, "mime_type": mime, "name": f"dropped.{fmt_key}"})
                         elif fmt_key == "dib":
                             from io import BytesIO
                             from PIL import Image
@@ -932,10 +934,6 @@ class PromptApp:
         except Exception:
             pass
 
-    def _poll_drop_queue(self):
-        """Legacy poller, no longer performs heavy lifting to ensure IME stability."""
-        # Frequent polling can interfere with IME in some Tkinter versions
-        self.root.after(2000, self._poll_drop_queue)
     def on_smart_generate(self):
         """Dispatches to either image or text generation based on active tab."""
         active_tab = self.input_notebook.index("current")
