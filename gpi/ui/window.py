@@ -28,8 +28,12 @@ from ..core.prompt import (
     save_all_history, delete_history_item_files
 )
 from ..core.utils import log_event
-import pythoncom
-import win32con
+try:
+    import pythoncom
+    import win32con
+except ImportError:
+    pythoncom = None
+    win32con = None
 from PIL import Image, ImageTk
 from io import BytesIO
 
@@ -93,7 +97,10 @@ class PromptApp:
         key_name = self.api_key_name_var.get()
         api_key = get_api_key(key_name)
         if not api_key:
-            self.model_combo["values"] = []
+            self.model_combo["values"] = ["local-llama-cpp"]
+            if self.model_name != "local-llama-cpp":
+                self.model_name = "local-llama-cpp"
+                self.model_var.set("local-llama-cpp")
             return
 
         def fetch():
@@ -108,6 +115,8 @@ class PromptApp:
         threading.Thread(target=fetch, daemon=True).start()
 
     def update_model_list(self, models):
+        if "local-llama-cpp" not in models:
+            models.append("local-llama-cpp")
         self.model_combo["values"] = models
         if self.model_name not in models:
             # Preferred order: flash-latest -> 2.0-flash -> 1.5-flash -> first available
@@ -353,19 +362,22 @@ class PromptApp:
         self.root.after(100, self._poll_drop_queue)
 
     def setup_dnd(self):
-        self._win_drop_formats = {
-            "hdrop": (win32con.CF_HDROP, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
-            "filedesc_w": (CF_FILEDESCRIPTORW, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
-            "filedesc_a": (CF_FILEDESCRIPTORA, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
-            "filecontents": (CF_FILECONTENTS, None, pythoncom.DVASPECT_CONTENT, 0, pythoncom.TYMED_ISTREAM | pythoncom.TYMED_HGLOBAL | pythoncom.TYMED_FILE),
-            "url_w": (CF_URLW, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
-            "url_a": (CF_URLA, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
-            "png": (CF_PNG, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
-            "webp": (CF_WEBP, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
-            "dib": (CF_DIB, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
-            "text_w": (win32con.CF_UNICODETEXT, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
-            "text_a": (win32con.CF_TEXT, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL)
-        }
+        if WIN_DND_AVAILABLE:
+            self._win_drop_formats = {
+                "hdrop": (win32con.CF_HDROP, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
+                "filedesc_w": (CF_FILEDESCRIPTORW, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
+                "filedesc_a": (CF_FILEDESCRIPTORA, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
+                "filecontents": (CF_FILECONTENTS, None, pythoncom.DVASPECT_CONTENT, 0, pythoncom.TYMED_ISTREAM | pythoncom.TYMED_HGLOBAL | pythoncom.TYMED_FILE),
+                "url_w": (CF_URLW, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
+                "url_a": (CF_URLA, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
+                "png": (CF_PNG, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
+                "webp": (CF_WEBP, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
+                "dib": (CF_DIB, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
+                "text_w": (win32con.CF_UNICODETEXT, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL),
+                "text_a": (win32con.CF_TEXT, None, pythoncom.DVASPECT_CONTENT, -1, pythoncom.TYMED_HGLOBAL)
+            }
+        else:
+            self._win_drop_formats = {}
         self.root.update_idletasks()
         self._win_target, self._win_com_target = setup_dnd(self.root, self.drop_label, self)
         self.root.bind_all("<Control-v>", lambda e: self.on_paste())
@@ -385,7 +397,7 @@ class PromptApp:
         new_model = self.model_var.get()
         key_name = self.api_key_name_var.get()
         api_key = get_api_key(key_name)
-        if not api_key:
+        if new_model != "local-llama-cpp" and not api_key:
             messagebox.showwarning("알림", "먼저 사용할 API 키를 설정하세요.")
             self.model_var.set(self.model_name)
             return
@@ -435,7 +447,7 @@ class PromptApp:
         key_name = self.api_key_name_var.get()
         api_key = get_api_key(key_name)
         
-        if not api_key:
+        if self.model_var.get() != "local-llama-cpp" and not api_key:
             messagebox.showwarning("알림", "사용할 API 키를 선택하거나 설정하세요.")
             return
         if not self.image_source:
@@ -465,22 +477,43 @@ class PromptApp:
                 def chunk_handler(chunk):
                     nonlocal current_tag
                     
-                    if "[KOREAN]" in chunk:
+                    if "[ENGLISH]" in chunk:
+                        parts = chunk.split("[ENGLISH]")
+                        if parts[0].strip():
+                            if current_tag == "ko":
+                                self.root.after(0, lambda p=parts[0]: self.translation_text.insert("end", p))
+                            elif current_tag == "zh":
+                                self.root.after(0, lambda p=parts[0]: self.translation_zh_text.insert("end", p))
+                            else:
+                                self.root.after(0, lambda p=parts[0]: self.output_text.insert("end", p))
+                        current_tag = "en"
+                        if len(parts) > 1 and parts[1].strip():
+                            self.root.after(0, lambda p=parts[1]: self.output_text.insert("end", p))
+                            self.root.after(0, lambda: self.output_text.see("end"))
+                    elif "[KOREAN]" in chunk:
                         parts = chunk.split("[KOREAN]")
                         if parts[0].strip():
-                            self.root.after(0, lambda p=parts[0]: self.output_text.insert("end", p))
+                            if current_tag == "en":
+                                self.root.after(0, lambda p=parts[0]: self.output_text.insert("end", p))
+                            elif current_tag == "zh":
+                                self.root.after(0, lambda p=parts[0]: self.translation_zh_text.insert("end", p))
                         current_tag = "ko"
                         self.root.after(0, lambda: self.translation_text.delete("1.0", "end"))
                         if len(parts) > 1 and parts[1].strip():
                             self.root.after(0, lambda p=parts[1]: self.translation_text.insert("end", p))
+                            self.root.after(0, lambda: self.translation_text.see("end"))
                     elif "[CHINESE]" in chunk:
                         parts = chunk.split("[CHINESE]")
                         if parts[0].strip():
-                            self.root.after(0, lambda p=parts[0]: self.translation_text.insert("end", p))
+                            if current_tag == "en":
+                                self.root.after(0, lambda p=parts[0]: self.output_text.insert("end", p))
+                            elif current_tag == "ko":
+                                self.root.after(0, lambda p=parts[0]: self.translation_text.insert("end", p))
                         current_tag = "zh"
                         self.root.after(0, lambda: self.translation_zh_text.delete("1.0", "end"))
                         if len(parts) > 1 and parts[1].strip():
                             self.root.after(0, lambda p=parts[1]: self.translation_zh_text.insert("end", p))
+                            self.root.after(0, lambda: self.translation_zh_text.see("end"))
                     else:
                         clean_chunk = chunk.replace("[ENGLISH]", "")
                         if current_tag == "en":
@@ -964,7 +997,7 @@ class PromptApp:
 
         key_name = self.api_key_name_var.get()
         api_key = get_api_key(key_name)
-        if not api_key:
+        if self.model_var.get() != "local-llama-cpp" and not api_key:
             messagebox.showwarning("알림", "사용할 API 키를 선택하거나 설정하세요.")
             return
 

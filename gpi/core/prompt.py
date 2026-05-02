@@ -172,18 +172,25 @@ def generate_prompt_logic(image_data, mime_type, api_key, model_name, thinking_l
     zh_part = ""
     
     if "[ENGLISH]" in full_text and "[KOREAN]" in full_text:
-        parts = full_text.split("[KOREAN]")
-        en_part = parts[0].replace("[ENGLISH]", "").strip()
+        # Split by the LAST [ENGLISH] tag to skip any reasoning traces
+        parts = full_text.rsplit("[ENGLISH]", 1)
+        actual_output = parts[-1]
         
-        remainder = parts[1]
-        if "[CHINESE]" in remainder:
-            sub_parts = remainder.split("[CHINESE]")
-            ko_part = sub_parts[0].strip()
-            zh_part = sub_parts[1].strip()
+        if "[KOREAN]" in actual_output:
+            ko_parts = actual_output.split("[KOREAN]", 1)
+            en_part = ko_parts[0].strip()
+            
+            remainder = ko_parts[1]
+            if "[CHINESE]" in remainder:
+                zh_parts = remainder.split("[CHINESE]", 1)
+                ko_part = zh_parts[0].strip()
+                zh_part = zh_parts[1].strip()
+            else:
+                ko_part = remainder.strip()
         else:
-            ko_part = remainder.strip()
+            en_part = actual_output.replace("[KOREAN]", "").replace("[CHINESE]", "").strip()
     else:
-        # Fallback if AI skips tags
+        # Fallback if AI skips tags completely
         en_part = full_text
     
     word_count = extract_word_count(en_part)
@@ -251,17 +258,25 @@ def generate_from_text_logic(text_input, api_key, model_name, thinking_level, ke
     zh_part = ""
     
     if "[ENGLISH]" in full_text and "[KOREAN]" in full_text:
-        parts = full_text.split("[KOREAN]")
-        en_part = parts[0].replace("[ENGLISH]", "").strip()
+        # Split by the LAST [ENGLISH] tag to skip any reasoning traces
+        parts = full_text.rsplit("[ENGLISH]", 1)
+        actual_output = parts[-1]
         
-        remainder = parts[1]
-        if "[CHINESE]" in remainder:
-            sub_parts = remainder.split("[CHINESE]")
-            ko_part = sub_parts[0].strip()
-            zh_part = sub_parts[1].strip()
+        if "[KOREAN]" in actual_output:
+            ko_parts = actual_output.split("[KOREAN]", 1)
+            en_part = ko_parts[0].strip()
+            
+            remainder = ko_parts[1]
+            if "[CHINESE]" in remainder:
+                zh_parts = remainder.split("[CHINESE]", 1)
+                ko_part = zh_parts[0].strip()
+                zh_part = zh_parts[1].strip()
+            else:
+                ko_part = remainder.strip()
         else:
-            ko_part = remainder.strip()
+            en_part = actual_output.replace("[KOREAN]", "").replace("[CHINESE]", "").strip()
     else:
+        # Fallback if AI skips tags completely
         en_part = full_text
     
     word_count = extract_word_count(en_part)

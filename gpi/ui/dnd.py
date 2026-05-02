@@ -24,6 +24,7 @@ except ImportError:
     CF_URLA = None
     CF_PNG = None
     CF_WEBP = None
+    CF_DIB = None
 
 class WindowsDropTarget:
     _com_interfaces_ = [pythoncom.IID_IDropTarget] if WIN_DND_AVAILABLE else []

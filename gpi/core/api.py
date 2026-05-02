@@ -22,6 +22,9 @@ from .utils import log_event
 from .image import SUPPORTED_MIME
 
 def validate_model_access(model_name, api_key):
+    if model_name == "local-llama-cpp":
+        return
+        
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}"
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
     request = urllib.request.Request(url, headers=headers, method="GET")
@@ -102,7 +105,37 @@ def download_image_from_url(url, cancel_check=None):
     except urllib.error.URLError:
         raise RuntimeError("이미지 다운로드 중 네트워크 오류가 발생했습니다.")
 
+def call_llama_cpp(image_b64, mime_type, api_key, instruction):
+    url = "http://127.0.0.1:8081/v1/chat/completions"
+    body = {
+        "model": "default",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": instruction},
+                    {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{image_b64}"}}
+                ]
+            }
+        ],
+        "temperature": 0.4
+    }
+    data = json.dumps(body).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+            return res_data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        raise RuntimeError(f"로컬 LLM 호출 오류: {str(e)}")
+
 def call_gemini(image_b64, mime_type, api_key, instruction, model_name, thinking_level=None):
+    if model_name == "local-llama-cpp":
+        return call_llama_cpp(image_b64, mime_type, api_key, instruction)
+        
     url = API_URL_TEMPLATE.format(model=model_name)
     body = {
         "contents": [{
@@ -130,7 +163,90 @@ def call_gemini(image_b64, mime_type, api_key, instruction, model_name, thinking
     except Exception as e:
         raise RuntimeError(f"API 호출 오류: {str(e)}")
 
+def call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk=None, cancel_check=None):
+    url = "http://127.0.0.1:8081/v1/chat/completions"
+    body = {
+        "model": "default",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": instruction},
+                    {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{image_b64}"}}
+                ]
+            }
+        ],
+        "temperature": 0.4,
+        "stream": True
+    }
+    data = json.dumps(body).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    
+    combined = ""
+    raw_buffer = ""
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            while True:
+                if cancel_check and cancel_check():
+                    raise RuntimeError(CANCELLED_MESSAGE)
+                chunk = response.read(4096)
+                if not chunk:
+                    break
+                
+                raw_buffer += chunk.decode("utf-8", errors="ignore")
+                while "\n" in raw_buffer:
+                    line, raw_buffer = raw_buffer.split("\n", 1)
+                    line = line.strip()
+                    payload = line[5:].strip() if line.startswith("data:") else line.strip()
+                    
+                    if payload == "[DONE]":
+                        break
+                        
+                    try:
+                        data_json = json.loads(payload)
+                        if "error" in data_json:
+                            raise RuntimeError(f"서버 오류: {data_json['error']}")
+                            
+                        choices = data_json.get("choices", [])
+                        if not choices:
+                            continue
+                            
+                        # Handle stream (delta) or full response (message)
+                        chunk_content = ""
+                        if "delta" in choices[0]:
+                            delta = choices[0]["delta"]
+                            if "reasoning_content" in delta and delta["reasoning_content"]:
+                                chunk_content += delta["reasoning_content"]
+                            if "content" in delta and delta["content"]:
+                                chunk_content += delta["content"]
+                        elif "message" in choices[0]:
+                            msg = choices[0]["message"]
+                            if "reasoning_content" in msg and msg["reasoning_content"]:
+                                chunk_content += msg["reasoning_content"]
+                            if "content" in msg and msg["content"]:
+                                chunk_content += msg["content"]
+                            
+                        if chunk_content:
+                            combined += chunk_content
+                            if on_chunk:
+                                on_chunk(chunk_content)
+                    except json.JSONDecodeError:
+                        pass
+            
+            final_text = combined.strip()
+            if not final_text:
+                raise RuntimeError("로컬 LLM에서 빈 응답을 반환했습니다. (이미지 분석 모델이 아니거나, API 형식이 맞지 않을 수 있습니다.)")
+            return final_text
+    except Exception as e:
+        raise RuntimeError(f"로컬 LLM 스트리밍 오류: {str(e)}")
+
 def call_gemini_stream(image_b64, mime_type, api_key, instruction, model_name, thinking_level=None, on_chunk=None, cancel_check=None):
+    if model_name == "local-llama-cpp":
+        return call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk, cancel_check)
+        
     url = API_STREAM_URL_TEMPLATE.format(model=model_name)
     body = {
         "contents": [{
@@ -183,7 +299,32 @@ def call_gemini_stream(image_b64, mime_type, api_key, instruction, model_name, t
     except Exception as e:
         raise RuntimeError(f"API 스트리밍 오류: {str(e)}")
 
+def call_llama_cpp_text(user_text, api_key, instruction):
+    url = "http://127.0.0.1:8081/v1/chat/completions"
+    body = {
+        "model": "default",
+        "messages": [
+            {"role": "system", "content": instruction},
+            {"role": "user", "content": user_text}
+        ],
+        "temperature": 0.5
+    }
+    data = json.dumps(body).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            res_data = json.loads(response.read().decode("utf-8"))
+            return res_data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        raise RuntimeError(f"로컬 LLM 호출 오류 (Text): {str(e)}")
+
 def call_gemini_text(user_text, api_key, instruction, model_name, thinking_level=None):
+    if model_name == "local-llama-cpp":
+        return call_llama_cpp_text(user_text, api_key, instruction)
+        
     url = API_URL_TEMPLATE.format(model=model_name)
     body = {
         "contents": [{
@@ -211,7 +352,85 @@ def call_gemini_text(user_text, api_key, instruction, model_name, thinking_level
     except Exception as e:
         raise RuntimeError(f"API 호출 오류 (Text): {str(e)}")
 
+def call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk=None, cancel_check=None):
+    url = "http://127.0.0.1:8081/v1/chat/completions"
+    body = {
+        "model": "default",
+        "messages": [
+            {"role": "system", "content": instruction},
+            {"role": "user", "content": user_text}
+        ],
+        "temperature": 0.5,
+        "stream": True
+    }
+    data = json.dumps(body).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    
+    combined = ""
+    raw_buffer = ""
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            while True:
+                if cancel_check and cancel_check():
+                    raise RuntimeError(CANCELLED_MESSAGE)
+                chunk = response.read(4096)
+                if not chunk:
+                    break
+                
+                raw_buffer += chunk.decode("utf-8", errors="ignore")
+                while "\n" in raw_buffer:
+                    line, raw_buffer = raw_buffer.split("\n", 1)
+                    line = line.strip()
+                    payload = line[5:].strip() if line.startswith("data:") else line.strip()
+                    
+                    if payload == "[DONE]":
+                        break
+                        
+                    try:
+                        data_json = json.loads(payload)
+                        if "error" in data_json:
+                            raise RuntimeError(f"서버 오류: {data_json['error']}")
+                            
+                        choices = data_json.get("choices", [])
+                        if not choices:
+                            continue
+                            
+                        # Handle stream (delta) or full response (message)
+                        chunk_content = ""
+                        if "delta" in choices[0]:
+                            delta = choices[0]["delta"]
+                            if "reasoning_content" in delta and delta["reasoning_content"]:
+                                chunk_content += delta["reasoning_content"]
+                            if "content" in delta and delta["content"]:
+                                chunk_content += delta["content"]
+                        elif "message" in choices[0]:
+                            msg = choices[0]["message"]
+                            if "reasoning_content" in msg and msg["reasoning_content"]:
+                                chunk_content += msg["reasoning_content"]
+                            if "content" in msg and msg["content"]:
+                                chunk_content += msg["content"]
+                            
+                        if chunk_content:
+                            combined += chunk_content
+                            if on_chunk:
+                                on_chunk(chunk_content)
+                    except json.JSONDecodeError:
+                        pass
+            
+            final_text = combined.strip()
+            if not final_text:
+                raise RuntimeError("로컬 LLM에서 빈 응답을 반환했습니다.")
+            return final_text
+    except Exception as e:
+        raise RuntimeError(f"로컬 LLM 스트리밍 오류 (Text): {str(e)}")
+
 def call_gemini_text_stream(user_text, api_key, instruction, model_name, thinking_level=None, on_chunk=None, cancel_check=None):
+    if model_name == "local-llama-cpp":
+        return call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk, cancel_check)
+        
     url = API_STREAM_URL_TEMPLATE.format(model=model_name)
     body = {
         "contents": [{
