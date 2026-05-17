@@ -48,7 +48,7 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
             "If conflicting, prioritize the keyword(s) seamlessly."
         )
     
-    # 출력 포맷 강제 (영어/한국어/중국어 트리플 포맷)
+    # Force output format (English/Korean/Chinese triple format)
     instr = base + (
         "\n\n"
         "[Structure Requirement]\n"
@@ -58,7 +58,6 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
         "- [Environment & Background]\n"
         "- [Lighting & Camera Specs]\n"
         "- [Text & Layout Instruction]\n\n"
-        "자연어 프롬프트는 [Core Subject & Action] (등장인물의 얼굴 표정 포함), [Detailed Attributes], [Environment & Background], [Lighting & Camera Specs], [Text & Layout Instruction] 으로 구분하여 작성한다.\n\n"
         "And you MUST provide the output in the following format strictly:\n"
         "[ENGLISH]\n"
         "(English prompt here)\n\n"
@@ -235,7 +234,6 @@ def build_text_to_prompt_instruction(keyword_text=''):
         "- [Environment & Background]\n"
         "- [Lighting & Camera Specs]\n"
         "- [Text & Layout Instruction]\n\n"
-        "자연어 프롬프트는 [Core Subject & Action] (등장인물의 얼굴 표정 포함), [Detailed Attributes], [Environment & Background], [Lighting & Camera Specs], [Text & Layout Instruction] 으로 구분하여 작성한다.\n\n"
         "And you MUST provide the output in the following format strictly:\n"
         "[ENGLISH]\n"
         "(Detailed Structured English prompt here)\n\n"
