@@ -52,9 +52,9 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
     instr = base + (
         "\n\n"
         "[Structure Requirement]\n"
-        "The natural language prompt must be written divided into the following sections:\n"
+        "The natural language prompt must be divided into the following sections:\n"
         "- [Core Subject & Action]\n"
-        "- [characters' facial expressions]\n"
+        "- [Characters' Facial Expressions]\n"
         "- [Detailed Attributes]\n"
         "- [Environment & Background]\n"
         "- [Lighting & Camera Specs]\n"
@@ -229,9 +229,9 @@ def build_text_to_prompt_instruction(keyword_text=''):
     instr = base + (
         "\n\n"
         "[Structure Requirement]\n"
-        "The natural language prompt must be written divided into the following sections:\n"
+        "The natural language prompt must be divided into the following sections:\n"
         "- [Core Subject & Action]\n"
-        "- [characters' facial expressions]\n"
+        "- [Characters' Facial Expressions]\n"
         "- [Detailed Attributes]\n"
         "- [Environment & Background]\n"
         "- [Lighting & Camera Specs]\n"
