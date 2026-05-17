@@ -51,6 +51,9 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
     # 출력 포맷 강제 (영어/한국어/중국어 트리플 포맷)
     instr = base + (
         "\n\n"
+        "[Structure Requirement]\n"
+        "The natural language prompt must be written divided into the following sections:\n"
+        "자연어 프롬프트는 [Core Subject & Action], [Detailed Attributes], [Environment & Background], [Lighting & Camera Specs], [Text & Layout Instruction] 으로 구분하여 작성한다.\n\n"
         "And you MUST provide the output in the following format strictly:\n"
         "[ENGLISH]\n"
         "(English prompt here)\n\n"
@@ -220,6 +223,9 @@ def build_text_to_prompt_instruction(keyword_text=''):
 
     instr = base + (
         "\n\n"
+        "[Structure Requirement]\n"
+        "The natural language prompt must be written divided into the following sections:\n"
+        "자연어 프롬프트는 [Core Subject & Action], [Detailed Attributes], [Environment & Background], [Lighting & Camera Specs], [Text & Layout Instruction] 으로 구분하여 작성한다.\n\n"
         "And you MUST provide the output in the following format strictly:\n"
         "[ENGLISH]\n"
         "(Detailed Structured English prompt here)\n\n"
