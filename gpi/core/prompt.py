@@ -67,7 +67,8 @@ def append_history(result, image_source=None):
             "en": result["en"].replace("\n", " ").strip(),
             "ko": result["ko"].replace("\n", " ").strip(),
             "zh": result.get("zh", "").replace("\n", " ").strip(),
-            "input_text": result.get("input_text", "")
+            "input_text": result.get("input_text", ""),
+            "keyword": result.get("keyword", "")
         }
         
         # Save image if provided and it's an image type
@@ -195,7 +196,7 @@ def generate_prompt_logic(image_data, mime_type, api_key, model_name, thinking_l
     
     word_count = extract_word_count(en_part)
     log_event("generate_success", {"model": model_name, "word_count": word_count, "multilingual": True})
-    return {"en": en_part, "ko": ko_part, "zh": zh_part}, word_count
+    return {"en": en_part, "ko": ko_part, "zh": zh_part, "keyword": keyword_text}, word_count
 
 def build_text_to_prompt_instruction(keyword_text=''):
     base = (
@@ -281,4 +282,4 @@ def generate_from_text_logic(text_input, api_key, model_name, thinking_level, ke
     
     word_count = extract_word_count(en_part)
     log_event("generate_text_success", {"model": model_name, "word_count": word_count})
-    return {"en": en_part, "ko": ko_part, "zh": zh_part}, word_count
+    return {"en": en_part, "ko": ko_part, "zh": zh_part, "keyword": keyword_text}, word_count

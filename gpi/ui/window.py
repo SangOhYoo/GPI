@@ -469,6 +469,9 @@ class PromptApp:
                     data = self.image_source["value"]
                     mime = self.image_source["mime_type"]
                 
+                if not mime:
+                    raise ValueError("지원하지 않거나 손상된 이미지입니다.")
+                
                 prepared_data, _ = prepare_image_bytes(data, mime, self.image_source["type"])
                 
                 # Unified streaming handler for three languages
@@ -623,6 +626,10 @@ class PromptApp:
         self.translation_text.insert("1.0", entry["ko"])
         self.translation_zh_text.delete("1.0", "end")
         self.translation_zh_text.insert("1.0", entry.get("zh", ""))
+        
+        # Restore keyword if present
+        keyword = entry.get("keyword", "")
+        self.keyword_var.set(keyword)
         
         # Switch input tab
         if list_type == "image":

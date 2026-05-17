@@ -27,16 +27,23 @@ SUPPORTED_MIME = {
 }
 
 def detect_mime_from_bytes(data, filename=""):
-    ext = Path(filename).suffix.lower()
-    if ext in SUPPORTED_MIME:
-        return SUPPORTED_MIME[ext]
-    
     try:
         with Image.open(BytesIO(data)) as img:
             fmt = (img.format or "").upper()
             fmt_map = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}
-            return fmt_map.get(fmt, "")
+            if fmt in fmt_map:
+                return fmt_map[fmt]
+            
+            # If Pillow can open it but it's another format (e.g. BMP, GIF),
+            # we can fallback to checking the extension or just treat it as PNG
+            ext = Path(filename).suffix.lower()
+            if ext in SUPPORTED_MIME:
+                return SUPPORTED_MIME[ext]
+            
+            # Default to png if we can open it but don't know the mime
+            return "image/png"
     except Exception:
+        # If Pillow cannot open the data, it's corrupt, an HTML file, or incomplete.
         return ""
 
 def optimize_image_bytes(data, mime_type, source_type):
