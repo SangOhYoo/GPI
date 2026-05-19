@@ -1200,8 +1200,8 @@ class PromptApp:
     def __init__(self, root):
         self.root = root
         self.root.title(APP_TITLE)
-        self.root.geometry("980x760")
-        self.root.minsize(980, 760)
+        self.root.geometry("1102x1310")
+        self.root.minsize(1102, 1310)
         self.image_source = None
         self.history = load_history()
         self.last_duration_sec = None
@@ -1354,11 +1354,12 @@ class PromptApp:
         ttk.Label(keyword_frame, text="키워드", style="Secondary.TLabel").pack(
             side="left"
         )
-        self.keyword_var = tk.StringVar()
+        self.keyword_var = tk.StringVar(value="고화질 4K 극사실주의 사진, 동양인,")
         self.keyword_entry = ttk.Entry(
             keyword_frame, textvariable=self.keyword_var, width=22
         )
         self.keyword_entry.pack(side="left", padx=(spacing["xs"], 0))
+        self.keyword_var.set("고화질 4K 극사실주의 사진, 동양인,")
         self.update_keyword_state()
         self.retry_button = ttk.Button(
             action_row,
