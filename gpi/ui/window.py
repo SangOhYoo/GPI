@@ -54,6 +54,9 @@ class PromptApp:
         self.model_thinking_level = 0
         self.download_in_progress = False
         self.history = load_history()
+        self.generation_queue = []
+        self.queue_total_count = 0
+        self.queue_processed_count = 0
 
         # Variable Initialization
         self.model_var = tk.StringVar(value=self.model_name)
@@ -450,9 +453,13 @@ class PromptApp:
         
         if self.model_var.get() != "local-llama-cpp" and not api_key:
             messagebox.showwarning("알림", "사용할 API 키를 선택하거나 설정하세요.")
+            if hasattr(self, 'generation_queue'):
+                self.generation_queue.clear()
             return
         if not self.image_source:
             messagebox.showwarning("알림", "이미지를 먼저 선택하세요.")
+            if hasattr(self, 'generation_queue'):
+                self.generation_queue.clear()
             return
 
         self.set_busy(True)
@@ -574,6 +581,9 @@ class PromptApp:
             self.history.append(result)
         self.refresh_history_list()
         self.status_var.set("생성 및 번역 완료")
+        
+        if hasattr(self, 'generation_queue') and self.generation_queue and self.model_var.get() == "local-llama-cpp":
+            self.root.after(100, self.process_next_in_queue)
 
     def on_copy_en(self):
         text = self.output_text.get("1.0", "end-1c").strip()
@@ -601,6 +611,13 @@ class PromptApp:
         if err != CANCELLED_MESSAGE:
             messagebox.showerror("오류", err)
         self.status_var.set("오류 발생" if err != CANCELLED_MESSAGE else "중단됨")
+        
+        if err == CANCELLED_MESSAGE:
+            if hasattr(self, 'generation_queue'):
+                self.generation_queue.clear()
+        else:
+            if hasattr(self, 'generation_queue') and self.generation_queue and self.model_var.get() == "local-llama-cpp":
+                self.root.after(1000, self.process_next_in_queue)
 
     def on_cancel(self):
         self.cancel_requested = True
@@ -767,6 +784,8 @@ class PromptApp:
             return
             
         try:
+            dropped_sources = []
+            
             # 1. Try Virtual Files (e.g. from Browser)
             descriptors = self._get_win_file_descriptors(data_obj)
             if descriptors:
@@ -775,42 +794,58 @@ class PromptApp:
                     if data:
                         mime = detect_mime_from_bytes(data, info['name'])
                         if mime:
-                            self.set_image_source({
+                            dropped_sources.append({
                                 "type": "drop_data", "value": data, "mime_type": mime, "name": info['name']
                             })
-                            return
             
             # 2. Try Direct Formats (PNG, WebP, DIB)
-            for fmt_key in ["png", "webp", "dib"]:
-                fmt = self._win_drop_formats.get(fmt_key)
-                if self.win_drop_query_format(data_obj, fmt):
-                    try:
-                        stg = data_obj.GetData(fmt)
-                        raw = bytes(stg.data)
-                        if fmt_key == "png" or fmt_key == "webp":
-                            mime = "image/png" if fmt_key == "png" else "image/webp"
-                            self.set_image_source({"type": "drop_data", "value": raw, "mime_type": mime, "name": f"dropped.{fmt_key}"})
-                        elif fmt_key == "dib":
-                            from io import BytesIO
-                            from PIL import Image
-                            img = Image.open(BytesIO(raw))
-                            buf = BytesIO()
-                            img.save(buf, format="PNG")
-                            self.set_image_source({"type": "drop_data", "value": buf.getvalue(), "mime_type": "image/png", "name": "dropped.png"})
-                        return
-                    except Exception:
-                        continue
+            if not dropped_sources:
+                for fmt_key in ["png", "webp", "dib"]:
+                    fmt = self._win_drop_formats.get(fmt_key)
+                    if self.win_drop_query_format(data_obj, fmt):
+                        try:
+                            stg = data_obj.GetData(fmt)
+                            raw = bytes(stg.data)
+                            if fmt_key == "png" or fmt_key == "webp":
+                                mime = "image/png" if fmt_key == "png" else "image/webp"
+                                dropped_sources.append({"type": "drop_data", "value": raw, "mime_type": mime, "name": f"dropped.{fmt_key}"})
+                            elif fmt_key == "dib":
+                                from io import BytesIO
+                                from PIL import Image
+                                img = Image.open(BytesIO(raw))
+                                buf = BytesIO()
+                                img.save(buf, format="PNG")
+                                dropped_sources.append({"type": "drop_data", "value": buf.getvalue(), "mime_type": "image/png", "name": "dropped.png"})
+                            break
+                        except Exception:
+                            continue
 
             # 3. Try Local Files
-            paths = self._get_win_hdrop_paths(data_obj)
-            if paths:
-                self.set_image_source({"type": "file", "value": paths[0]})
-                return
+            if not dropped_sources:
+                paths = self._get_win_hdrop_paths(data_obj)
+                if paths:
+                    for path in paths:
+                        dropped_sources.append({"type": "file", "value": path})
                 
             # 4. Try Text/URL
-            text = self._get_win_text(data_obj)
-            if text:
-                if is_url(text):
+            text = ""
+            if not dropped_sources:
+                text = self._get_win_text(data_obj)
+
+            is_llama = (self.model_var.get() == "local-llama-cpp")
+            
+            if is_llama:
+                if dropped_sources:
+                    self.add_to_generation_queue(dropped_sources)
+                    return
+                if text and is_url(text):
+                    self.download_and_queue_url(text)
+                    return
+            else:
+                if dropped_sources:
+                    self.set_image_source(dropped_sources[0])
+                    return
+                if text and is_url(text):
                     self.start_url_download(text)
                     return
             
@@ -1069,3 +1104,63 @@ class PromptApp:
                 self.root.after(0, lambda err=str(e): self.on_error(err))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def add_to_generation_queue(self, sources):
+        if not hasattr(self, 'generation_queue'):
+            self.generation_queue = []
+            self.queue_total_count = 0
+            self.queue_processed_count = 0
+            
+        if not self.generation_queue:
+            self.queue_total_count = 0
+            self.queue_processed_count = 0
+            
+        self.generation_queue.extend(sources)
+        self.queue_total_count += len(sources)
+        
+        self.status_var.set(f"대기열에 {len(sources)}개 이미지 추가됨 (총 {self.queue_total_count - self.queue_processed_count}개 대기 중)")
+        
+        if not self.generation_in_progress:
+            self.process_next_in_queue()
+
+    def download_and_queue_url(self, url):
+        self.status_var.set("URL 다운로드 대기 중...")
+        def worker():
+            try:
+                data, mime = download_image_from_url(url)
+                source = {"type": "url_data", "value": data, "mime_type": mime, "url": url}
+                self.root.after(0, lambda: self.add_to_generation_queue([source]))
+            except Exception as e:
+                self.root.after(0, lambda err=str(e): self.on_error(err))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def process_next_in_queue(self):
+        if not self.generation_queue:
+            self.status_var.set("대기열 모든 이미지 처리 완료")
+            self.set_busy(False)
+            return
+            
+        if self.cancel_requested:
+            self.generation_queue.clear()
+            self.status_var.set("대기열 처리가 중단되었습니다.")
+            self.set_busy(False)
+            return
+            
+        source = self.generation_queue.pop(0)
+        self.queue_processed_count += 1
+        
+        self.set_image_source(source)
+        self.generation_in_progress = False 
+        self.on_generate()
+        
+        source_name = ""
+        if source["type"] == "file":
+            source_name = Path(source["value"]).name
+        elif source["type"] == "drop_data":
+            source_name = source.get("name", "Dropped Image")
+        elif source["type"] == "url_data":
+            source_name = source.get("url", "URL Image")
+            if "/" in source_name:
+                source_name = source_name.split("/")[-1]
+                
+        self.status_var.set(f"대기열 처리 중 ({self.queue_processed_count}/{self.queue_total_count}) - {source_name}")
