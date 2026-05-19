@@ -41,7 +41,7 @@ class PromptApp:
     def __init__(self, root):
         self.root = root
         self.root.title("GPI - Gemini Prompt Instrument")
-        self.root.geometry("1100x900")
+        self.root.geometry("1102x1310")
         
         # State
         self.image_source = None
@@ -59,7 +59,7 @@ class PromptApp:
         self.model_var = tk.StringVar(value=self.model_name)
         self.api_key_name_var = tk.StringVar(value="Default")
         self.file_path_var = tk.StringVar(value="선택된 파일 없음")
-        self.keyword_var = tk.StringVar()
+        self.keyword_var = tk.StringVar(value="고화질 4K 극사실주의 사진, 동양인,")
         self.status_var = tk.StringVar(value="대기 중")
         
         # Fidelity and Word Count State
@@ -234,7 +234,7 @@ class PromptApp:
         opt_frame.pack(fill="x", pady=SPACING["md"])
         
         ttk.Label(opt_frame, text="키워드 (선택):").pack(anchor="w", padx=SPACING["sm"])
-        self.keyword_var = tk.StringVar()
+        self.keyword_var = tk.StringVar(value="고화질 4K 극사실주의 사진, 동양인,")
         # Use plain tk.Entry for better IME compatibility on Windows with custom themes
         self.keyword_entry = tk.Entry(
             opt_frame, textvariable=self.keyword_var, font=FONTS["main"],
@@ -244,6 +244,7 @@ class PromptApp:
             highlightcolor=COLORS["accent"]
         )
         self.keyword_entry.pack(fill="x", padx=SPACING["sm"], pady=(0, SPACING["sm"]), ipady=4)
+        self.keyword_var.set("고화질 4K 극사실주의 사진, 동양인,")
         
         # High Fidelity Checkbox (Mainly for image analysis)
         self.hf_check = ttk.Checkbutton(
