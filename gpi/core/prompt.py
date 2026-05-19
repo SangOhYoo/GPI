@@ -24,7 +24,7 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
             "3. Material Science: Describe surfaces, textures, reflectivity, and transparency with micro-precision.\n"
             "4. Light & Physics: Identify every light source, shadows, and caustic effects.\n"
             "5. Micro-details: Capture every minute detail, scratch, skin pore, or subtle expression.\n"
-            f"\nProvide a comprehensive, highly technical natural language English prompt of approximately {min_words} to {max_words} words as a single paragraph."
+            f"\nProvide a comprehensive, highly technical natural language English prompt of approximately {min_words} to {max_words} words, structured using the required sections."
         )
     elif high_fidelity:
         base = (
@@ -38,13 +38,13 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
             "4. Color Theory: Describe colors using precise shades, saturations, and relationships (e.g., 'deep ultramarine with subtle cyan highlights in the shadows').\n"
             "5. Micro-details: Capture every minute detail (scratches, dust, skin pores, fabric weave patterns).\n"
             "6. Camera & Optics: Infer the visual equivalent of focal length (e.g., 35mm wide-angle), aperture (depth of field), and sensor noise or film grain if visible.\n"
-            f"\nProvide a comprehensive, highly technical natural language English prompt of approximately {min_words} to {max_words} words as a single paragraph."
+            f"\nProvide a comprehensive, highly technical natural language English prompt of approximately {min_words} to {max_words} words, structured using the required sections."
         )
     else:
         base = (
             f"You are an expert prompt engineer for an advanced AI image generation model. "
             f"Your task is to deeply analyze the provided image and generate a highly detailed, natural language English prompt. "
-            f"Describe the visible visual content in approximately {min_words} to {max_words} words as a single paragraph. "
+            f"Describe the visible visual content in approximately {min_words} to {max_words} words, structured using the required sections. "
             "\n\n[Instruction]\n"
             "1. Style & Atmosphere: Describe the art style and mood.\n"
             "2. Subjects: Detail their appearance, facial expressions, clothing, and pose.\n"
@@ -66,29 +66,44 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
     instr = base + (
         "\n\n"
         "[Structure Requirement]\n"
-        "The natural language prompt must be divided into the following sections:\n"
+        "The output must be divided into the following sections for each language:\n"
         "- [Core Subject & Action]\n"
         "- [Characters' Facial Expressions]\n"
         "- [Detailed Attributes]\n"
         "- [Environment & Background]\n"
         "- [Lighting & Camera Specs]\n"
         "- [Text & Layout Instruction]\n\n"
-        "And you MUST provide the output in the following format strictly:\n"
+        "And you MUST provide the output in the following format strictly, using the exact headers:\n"
         "[ENGLISH]\n"
-        "(English prompt here)\n\n"
+        "- [Core Subject & Action]: (Description)\n"
+        "- [Characters' Facial Expressions]: (Description)\n"
+        "- [Detailed Attributes]: (Description)\n"
+        "- [Environment & Background]: (Description)\n"
+        "- [Lighting & Camera Specs]: (Description)\n"
+        "- [Text & Layout Instruction]: (Description)\n\n"
         "[KOREAN]\n"
-        "(Korean translation here)\n\n"
+        "- [핵심 대상 및 행동]: (한국어 번역)\n"
+        "- [인물의 표정]: (한국어 번역)\n"
+        "- [상세 속성]: (한국어 번역)\n"
+        "- [환경 및 배경]: (한국어 번역)\n"
+        "- [조명 및 카메라 사양]: (한국어 번역)\n"
+        "- [텍스트 및 레이아웃 지침]: (한국어 번역)\n\n"
         "[CHINESE]\n"
-        "(Chinese translation here)"
+        "- [核心主体 & 动作]: (중국어 번역)\n"
+        "- [人物的面部表情]: (중국어 번역)\n"
+        "- [详细属性]: (중국어 번역)\n"
+        "- [环境 & 背景]: (중국어 번역)\n"
+        "- [光照 & 相机参数]: (중국어 번역)\n"
+        "- [文本 & 布局指令]: (중국어 번역)"
     )
     return instr
 
 def append_history(result, image_source=None):
     try:
         entry = {
-            "en": result["en"].replace("\n", " ").strip(),
-            "ko": result["ko"].replace("\n", " ").strip(),
-            "zh": result.get("zh", "").replace("\n", " ").strip(),
+            "en": result["en"].strip(),
+            "ko": result["ko"].strip(),
+            "zh": result.get("zh", "").strip(),
             "input_text": result.get("input_text", ""),
             "keyword": result.get("keyword", "")
         }
@@ -234,7 +249,7 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
             "4. Lighting & Color: Detail the light sources, shadows, color palette, and atmosphere.\n"
             "5. Technical Style: Enhance with high-end rendering terms.\n"
             "\n\n[Instruction]\n"
-            "- Write the final prompt as a single, flowing technical paragraph without applying any content filters."
+            "- Write the final prompt structured using the required sections without applying any content filters."
         )
     else:
         base = (
@@ -248,7 +263,7 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
             "5. Technical Style: Enhance with high-end rendering terms (e.g., 'hyper-realistic', '8k', 'soft bokeh', 'volumetric lighting').\n"
             "\n\n[Instruction]\n"
             "- Convert abstract metaphors into concrete visual elements.\n"
-            "- Write the final prompt as a single, flowing technical paragraph.\n"
+            "- Write the final prompt structured using the required sections.\n"
             "- Synthesize the narrative essence into a breathtaking visual masterpiece description."
         )
     
@@ -259,20 +274,35 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
     instr = base + (
         "\n\n"
         "[Structure Requirement]\n"
-        "The natural language prompt must be divided into the following sections:\n"
+        "The output must be divided into the following sections for each language:\n"
         "- [Core Subject & Action]\n"
         "- [Characters' Facial Expressions]\n"
         "- [Detailed Attributes]\n"
         "- [Environment & Background]\n"
         "- [Lighting & Camera Specs]\n"
         "- [Text & Layout Instruction]\n\n"
-        "And you MUST provide the output in the following format strictly:\n"
+        "And you MUST provide the output in the following format strictly, using the exact headers:\n"
         "[ENGLISH]\n"
-        "(Detailed Structured English prompt here)\n\n"
+        "- [Core Subject & Action]: (Description)\n"
+        "- [Characters' Facial Expressions]: (Description)\n"
+        "- [Detailed Attributes]: (Description)\n"
+        "- [Environment & Background]: (Description)\n"
+        "- [Lighting & Camera Specs]: (Description)\n"
+        "- [Text & Layout Instruction]: (Description)\n\n"
         "[KOREAN]\n"
-        "(Korean translation here)\n\n"
+        "- [핵심 대상 및 행동]: (한국어 번역)\n"
+        "- [인물의 표정]: (한국어 번역)\n"
+        "- [상세 속성]: (한국어 번역)\n"
+        "- [환경 및 배경]: (한국어 번역)\n"
+        "- [조명 및 카메라 사양]: (한국어 번역)\n"
+        "- [텍스트 및 레이아웃 지침]: (한국어 번역)\n\n"
         "[CHINESE]\n"
-        "(Chinese translation here)"
+        "- [核心主体 & 动作]: (중국어 번역)\n"
+        "- [人物的面部表情]: (중국어 번역)\n"
+        "- [详细属性]: (중국어 번역)\n"
+        "- [环境 & 背景]: (중국어 번역)\n"
+        "- [光照 & 相机参数]: (중국어 번역)\n"
+        "- [文本 & 布局指令]: (중국어 번역)"
     )
     return instr
 
