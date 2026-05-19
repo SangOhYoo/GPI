@@ -127,7 +127,7 @@ def parse_file_group_descriptor(data, wide=True):
     name_offset = 72
     
     items = []
-    for index in range(min(count, 10)):
+    for index in range(min(count, 1000)):
         offset = 4 + index * desc_size
         if len(data) < offset + desc_size:
             break
