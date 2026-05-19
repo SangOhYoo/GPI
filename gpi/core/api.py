@@ -106,6 +106,22 @@ def download_image_from_url(url, cancel_check=None):
         raise RuntimeError("이미지 다운로드 중 네트워크 오류가 발생했습니다.")
 
 def call_llama_cpp(image_b64, mime_type, api_key, instruction):
+    if mime_type not in ("image/jpeg", "image/png"):
+        try:
+            from PIL import Image
+            from io import BytesIO
+            import base64
+            img_data = base64.b64decode(image_b64)
+            with Image.open(BytesIO(img_data)) as img:
+                if img.mode not in ("RGB", "L"):
+                    img = img.convert("RGB")
+                buffer = BytesIO()
+                img.save(buffer, format="JPEG", quality=85)
+                image_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+                mime_type = "image/jpeg"
+        except Exception as e:
+            log_event("llama_cpp_image_convert_error", {"error": str(e)})
+
     url = "http://127.0.0.1:8081/v1/chat/completions"
     body = {
         "model": "default",
@@ -164,6 +180,22 @@ def call_gemini(image_b64, mime_type, api_key, instruction, model_name, thinking
         raise RuntimeError(f"API 호출 오류: {str(e)}")
 
 def call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk=None, cancel_check=None):
+    if mime_type not in ("image/jpeg", "image/png"):
+        try:
+            from PIL import Image
+            from io import BytesIO
+            import base64
+            img_data = base64.b64decode(image_b64)
+            with Image.open(BytesIO(img_data)) as img:
+                if img.mode not in ("RGB", "L"):
+                    img = img.convert("RGB")
+                buffer = BytesIO()
+                img.save(buffer, format="JPEG", quality=85)
+                image_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+                mime_type = "image/jpeg"
+        except Exception as e:
+            log_event("llama_cpp_image_convert_error", {"error": str(e)})
+
     url = "http://127.0.0.1:8081/v1/chat/completions"
     body = {
         "model": "default",
