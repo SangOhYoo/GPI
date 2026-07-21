@@ -46,7 +46,7 @@ def detect_mime_from_bytes(data, filename=""):
         # If Pillow cannot open the data, it's corrupt, an HTML file, or incomplete.
         return ""
 
-def optimize_image_bytes(data, mime_type, source_type):
+def optimize_image_bytes(data, mime_type, source_type, high_fidelity=False):
     try:
         with Image.open(BytesIO(data)) as img:
             orig_width, orig_height = img.size
@@ -54,8 +54,9 @@ def optimize_image_bytes(data, mime_type, source_type):
             resized = False
             max_edge = max(orig_width, orig_height)
             
-            if max_edge > MAX_IMAGE_DIM:
-                scale = MAX_IMAGE_DIM / max_edge
+            max_dim = 3072 if high_fidelity else MAX_IMAGE_DIM
+            if max_edge > max_dim:
+                scale = max_dim / max_edge
                 new_size = (max(1, int(orig_width * scale)), max(1, int(orig_height * scale)))
                 img = img.resize(new_size, Image.LANCZOS)
                 resized = True
@@ -107,8 +108,8 @@ def optimize_image_bytes(data, mime_type, source_type):
     except Exception:
         return (data, {"optimized": False, "reason": "최적화 실패", "source": source_type})
 
-def prepare_image_bytes(data, mime_type, source_type):
-    optimized_data, info = optimize_image_bytes(data, mime_type, source_type)
+def prepare_image_bytes(data, mime_type, source_type, high_fidelity=False):
+    optimized_data, info = optimize_image_bytes(data, mime_type, source_type, high_fidelity=high_fidelity)
     if info.get("optimized"):
         log_event("image_optimize", info)
     

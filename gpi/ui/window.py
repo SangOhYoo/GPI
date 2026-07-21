@@ -336,8 +336,13 @@ class PromptApp:
         self.image_hist_tab = ttk.Frame(self.history_notebook)
         self.history_notebook.add(self.image_hist_tab, text="이미지")
         
-        self.image_history_list = tk.Listbox(self.image_hist_tab, height=8)
+        self.image_history_list = ttk.Treeview(self.image_hist_tab, columns=("filename", "text"), show="headings", height=8)
+        self.image_history_list.heading("filename", text="파일명", command=lambda: self._treeview_sort_column(self.image_history_list, "filename", False))
+        self.image_history_list.heading("text", text="내용", command=lambda: self._treeview_sort_column(self.image_history_list, "text", False))
+        self.image_history_list.column("filename", width=120, stretch=False)
+        self.image_history_list.column("text", width=400, stretch=True)
         self.image_history_list.pack(side="left", fill="both", expand=True)
+        
         img_scroll = ttk.Scrollbar(self.image_hist_tab, orient="vertical", command=self.image_history_list.yview)
         img_scroll.pack(side="right", fill="y")
         self.image_history_list.configure(yscrollcommand=img_scroll.set)
@@ -346,15 +351,20 @@ class PromptApp:
         self.text_hist_tab = ttk.Frame(self.history_notebook)
         self.history_notebook.add(self.text_hist_tab, text="텍스트")
         
-        self.text_history_list = tk.Listbox(self.text_hist_tab, height=8)
+        self.text_history_list = ttk.Treeview(self.text_hist_tab, columns=("filename", "text"), show="headings", height=8)
+        self.text_history_list.heading("filename", text="구분", command=lambda: self._treeview_sort_column(self.text_history_list, "filename", False))
+        self.text_history_list.heading("text", text="내용", command=lambda: self._treeview_sort_column(self.text_history_list, "text", False))
+        self.text_history_list.column("filename", width=120, stretch=False)
+        self.text_history_list.column("text", width=400, stretch=True)
         self.text_history_list.pack(side="left", fill="both", expand=True)
+        
         txt_scroll = ttk.Scrollbar(self.text_hist_tab, orient="vertical", command=self.text_history_list.yview)
         txt_scroll.pack(side="right", fill="y")
         self.text_history_list.configure(yscrollcommand=txt_scroll.set)
         
         # Bindings
-        self.image_history_list.bind("<<ListboxSelect>>", lambda e: self.on_history_select(e, "image"))
-        self.text_history_list.bind("<<ListboxSelect>>", lambda e: self.on_history_select(e, "text"))
+        self.image_history_list.bind("<<TreeviewSelect>>", lambda e: self.on_history_select(e, "image"))
+        self.text_history_list.bind("<<TreeviewSelect>>", lambda e: self.on_history_select(e, "text"))
         self.image_history_list.bind("<Delete>", lambda e: self.on_delete_history())
         self.text_history_list.bind("<Delete>", lambda e: self.on_delete_history())
         
@@ -364,6 +374,18 @@ class PromptApp:
         
         # Start drop queue poller
         self.root.after(100, self._poll_drop_queue)
+
+    def _treeview_sort_column(self, tv, col, reverse):
+        l = [(tv.set(k, col), k) for k in tv.get_children('')]
+        l.sort(reverse=reverse)
+
+        # rearrange items in sorted positions
+        for index, (val, k) in enumerate(l):
+            tv.move(k, '', index)
+
+        # reverse sort next time
+        tv.heading(col, command=lambda _col=col: \
+                 self._treeview_sort_column(tv, _col, not reverse))
 
     def setup_dnd(self):
         if WIN_DND_AVAILABLE:
@@ -480,7 +502,10 @@ class PromptApp:
                 if not mime:
                     raise ValueError("지원하지 않거나 손상된 이미지입니다.")
                 
-                prepared_data, _ = prepare_image_bytes(data, mime, self.image_source["type"])
+                prepared_data, _ = prepare_image_bytes(
+                    data, mime, self.image_source["type"],
+                    high_fidelity=self.high_fidelity_var.get()
+                )
                 
                 # Unified streaming handler for three languages
                 current_tag = "en"
@@ -488,54 +513,45 @@ class PromptApp:
                 def chunk_handler(chunk):
                     nonlocal current_tag
                     
-                    if "[ENGLISH]" in chunk:
-                        parts = chunk.split("[ENGLISH]")
-                        if parts[0].strip():
-                            if current_tag == "ko":
-                                self.root.after(0, lambda p=parts[0]: self.translation_text.insert("end", p))
-                            elif current_tag == "zh":
-                                self.root.after(0, lambda p=parts[0]: self.translation_zh_text.insert("end", p))
-                            else:
-                                self.root.after(0, lambda p=parts[0]: self.output_text.insert("end", p))
-                        current_tag = "en"
-                        if len(parts) > 1 and parts[1].strip():
-                            self.root.after(0, lambda p=parts[1]: self.output_text.insert("end", p))
-                            self.root.after(0, lambda: self.output_text.see("end"))
-                    elif "[KOREAN]" in chunk:
-                        parts = chunk.split("[KOREAN]")
-                        if parts[0].strip():
+                    while chunk:
+                        tags = {"[ENGLISH]": "en", "[KOREAN]": "ko", "[CHINESE]": "zh"}
+                        first_tag_pos = -1
+                        first_tag_str = ""
+                        
+                        for t in tags:
+                            pos = chunk.find(t)
+                            if pos != -1 and (first_tag_pos == -1 or pos < first_tag_pos):
+                                first_tag_pos = pos
+                                first_tag_str = t
+                                
+                        if first_tag_pos == -1:
                             if current_tag == "en":
-                                self.root.after(0, lambda p=parts[0]: self.output_text.insert("end", p))
-                            elif current_tag == "zh":
-                                self.root.after(0, lambda p=parts[0]: self.translation_zh_text.insert("end", p))
-                        current_tag = "ko"
-                        self.root.after(0, lambda: self.translation_text.delete("1.0", "end"))
-                        if len(parts) > 1 and parts[1].strip():
-                            self.root.after(0, lambda p=parts[1]: self.translation_text.insert("end", p))
-                            self.root.after(0, lambda: self.translation_text.see("end"))
-                    elif "[CHINESE]" in chunk:
-                        parts = chunk.split("[CHINESE]")
-                        if parts[0].strip():
-                            if current_tag == "en":
-                                self.root.after(0, lambda p=parts[0]: self.output_text.insert("end", p))
+                                self.root.after(0, lambda c=chunk: self.output_text.insert("end", c))
+                                self.root.after(0, lambda: self.output_text.see("end"))
                             elif current_tag == "ko":
-                                self.root.after(0, lambda p=parts[0]: self.translation_text.insert("end", p))
-                        current_tag = "zh"
-                        self.root.after(0, lambda: self.translation_zh_text.delete("1.0", "end"))
-                        if len(parts) > 1 and parts[1].strip():
-                            self.root.after(0, lambda p=parts[1]: self.translation_zh_text.insert("end", p))
-                            self.root.after(0, lambda: self.translation_zh_text.see("end"))
-                    else:
-                        clean_chunk = chunk.replace("[ENGLISH]", "")
-                        if current_tag == "en":
-                            self.root.after(0, lambda c=clean_chunk: self.output_text.insert("end", c))
-                            self.root.after(0, lambda: self.output_text.see("end"))
-                        elif current_tag == "ko":
-                            self.root.after(0, lambda c=clean_chunk: self.translation_text.insert("end", c))
-                            self.root.after(0, lambda: self.translation_text.see("end"))
-                        else:
-                            self.root.after(0, lambda c=clean_chunk: self.translation_zh_text.insert("end", c))
-                            self.root.after(0, lambda: self.translation_zh_text.see("end"))
+                                self.root.after(0, lambda c=chunk: self.translation_text.insert("end", c))
+                                self.root.after(0, lambda: self.translation_text.see("end"))
+                            elif current_tag == "zh":
+                                self.root.after(0, lambda c=chunk: self.translation_zh_text.insert("end", c))
+                                self.root.after(0, lambda: self.translation_zh_text.see("end"))
+                            break
+                            
+                        pre_text = chunk[:first_tag_pos]
+                        if pre_text:
+                            if current_tag == "en":
+                                self.root.after(0, lambda p=pre_text: self.output_text.insert("end", p))
+                            elif current_tag == "ko":
+                                self.root.after(0, lambda p=pre_text: self.translation_text.insert("end", p))
+                            elif current_tag == "zh":
+                                self.root.after(0, lambda p=pre_text: self.translation_zh_text.insert("end", p))
+                                
+                        current_tag = tags[first_tag_str]
+                        if current_tag == "ko":
+                            self.root.after(0, lambda: self.translation_text.delete("1.0", "end"))
+                        elif current_tag == "zh":
+                            self.root.after(0, lambda: self.translation_zh_text.delete("1.0", "end"))
+                            
+                        chunk = chunk[first_tag_pos + len(first_tag_str):]
 
                 result, count = generate_prompt_logic(
                     prepared_data, mime, api_key, 
@@ -625,17 +641,20 @@ class PromptApp:
 
     def on_history_select(self, event, list_type="image"):
         listbox = self.image_history_list if list_type == "image" else self.text_history_list
-        idx_tuple = listbox.curselection()
-        if not idx_tuple:
+        selected = listbox.selection()
+        if not selected:
             return
             
-        idx = idx_tuple[0]
-        # Get the real index in self.history
-        mappings = self.image_history_indices if list_type == "image" else self.text_history_indices
-        if idx >= len(mappings):
+        item_id = selected[0]
+        tags = listbox.item(item_id, "tags")
+        if not tags:
             return
             
-        real_idx = mappings[idx]
+        real_idx = int(tags[0])
+        
+        if real_idx >= len(self.history):
+            return
+            
         entry = self.history[real_idx]
         
         self.output_text.delete("1.0", "end")
@@ -681,17 +700,20 @@ class PromptApp:
         active_tab = self.history_notebook.index("current")
         list_type = "image" if active_tab == 0 else "text"
         listbox = self.image_history_list if list_type == "image" else self.text_history_list
-        mappings = self.image_history_indices if list_type == "image" else self.text_history_indices
         
-        idx_tuple = listbox.curselection()
-        if not idx_tuple:
+        selected = listbox.selection()
+        if not selected:
             return
         
         if not messagebox.askyesno("확인", "선택한 히스토리 항목을 삭제하시겠습니까?"):
             return
             
-        idx = idx_tuple[0]
-        real_idx = mappings[idx]
+        item_id = selected[0]
+        tags = listbox.item(item_id, "tags")
+        if not tags:
+            return
+            
+        real_idx = int(tags[0])
         
         if 0 <= real_idx < len(self.history):
             entry = self.history[real_idx]
@@ -707,21 +729,25 @@ class PromptApp:
                 messagebox.showerror("오류", "히스토리 파일 저장 중 오류가 발생했습니다.")
 
     def refresh_history_list(self):
-        self.image_history_list.delete(0, "end")
-        self.text_history_list.delete(0, "end")
-        self.image_history_indices = []
-        self.text_history_indices = []
-        
+        for item in self.image_history_list.get_children():
+            self.image_history_list.delete(item)
+        for item in self.text_history_list.get_children():
+            self.text_history_list.delete(item)
+            
         # We need to process in reversed order to match the visual "most recent first"
         for i in range(len(self.history) - 1, -1, -1):
             h = self.history[i]
             label = h["en"][:100] + "..."
+            
+            orig_name = ""
             if h.get("image_path"):
-                self.image_history_list.insert("end", label)
-                self.image_history_indices.append(i)
+                import os
+                orig_name = os.path.basename(h.get("image_path"))
+                
+            if h.get("image_path"):
+                self.image_history_list.insert("", "end", values=(orig_name, label), tags=(str(i),))
             else:
-                self.text_history_list.insert("end", label)
-                self.text_history_indices.append(i)
+                self.text_history_list.insert("", "end", values=("텍스트", label), tags=(str(i),))
 
     def on_drop_hover(self, event=None):
         self.drop_label.configure(background=COLORS["surface_alt_strong"], relief="ridge", bd=2)
@@ -1058,30 +1084,46 @@ class PromptApp:
                 
                 def chunk_handler(chunk):
                     nonlocal current_tag
-                    if "[KOREAN]" in chunk:
-                        parts = chunk.split("[KOREAN]")
-                        if parts[0].strip():
-                            self.root.after(0, lambda p=parts[0]: self.output_text.insert("end", p))
-                        current_tag = "ko"
-                        self.root.after(0, lambda: self.translation_text.delete("1.0", "end"))
-                        if len(parts) > 1 and parts[1].strip():
-                            self.root.after(0, lambda p=parts[1]: self.translation_text.insert("end", p))
-                    elif "[CHINESE]" in chunk:
-                        parts = chunk.split("[CHINESE]")
-                        if parts[0].strip():
-                            self.root.after(0, lambda p=parts[0]: self.translation_text.insert("end", p))
-                        current_tag = "zh"
-                        self.root.after(0, lambda: self.translation_zh_text.delete("1.0", "end"))
-                        if len(parts) > 1 and parts[1].strip():
-                            self.root.after(0, lambda p=parts[1]: self.translation_zh_text.insert("end", p))
-                    else:
-                        clean_chunk = chunk.replace("[ENGLISH]", "")
-                        if current_tag == "en":
-                            self.root.after(0, lambda c=clean_chunk: self.output_text.insert("end", c))
-                        elif current_tag == "ko":
-                            self.root.after(0, lambda c=clean_chunk: self.translation_text.insert("end", c))
-                        else:
-                            self.root.after(0, lambda c=clean_chunk: self.translation_zh_text.insert("end", c))
+                    
+                    while chunk:
+                        tags = {"[ENGLISH]": "en", "[KOREAN]": "ko", "[CHINESE]": "zh"}
+                        first_tag_pos = -1
+                        first_tag_str = ""
+                        
+                        for t in tags:
+                            pos = chunk.find(t)
+                            if pos != -1 and (first_tag_pos == -1 or pos < first_tag_pos):
+                                first_tag_pos = pos
+                                first_tag_str = t
+                                
+                        if first_tag_pos == -1:
+                            if current_tag == "en":
+                                self.root.after(0, lambda c=chunk: self.output_text.insert("end", c))
+                                self.root.after(0, lambda: self.output_text.see("end"))
+                            elif current_tag == "ko":
+                                self.root.after(0, lambda c=chunk: self.translation_text.insert("end", c))
+                                self.root.after(0, lambda: self.translation_text.see("end"))
+                            elif current_tag == "zh":
+                                self.root.after(0, lambda c=chunk: self.translation_zh_text.insert("end", c))
+                                self.root.after(0, lambda: self.translation_zh_text.see("end"))
+                            break
+                            
+                        pre_text = chunk[:first_tag_pos]
+                        if pre_text:
+                            if current_tag == "en":
+                                self.root.after(0, lambda p=pre_text: self.output_text.insert("end", p))
+                            elif current_tag == "ko":
+                                self.root.after(0, lambda p=pre_text: self.translation_text.insert("end", p))
+                            elif current_tag == "zh":
+                                self.root.after(0, lambda p=pre_text: self.translation_zh_text.insert("end", p))
+                                
+                        current_tag = tags[first_tag_str]
+                        if current_tag == "ko":
+                            self.root.after(0, lambda: self.translation_text.delete("1.0", "end"))
+                        elif current_tag == "zh":
+                            self.root.after(0, lambda: self.translation_zh_text.delete("1.0", "end"))
+                            
+                        chunk = chunk[first_tag_pos + len(first_tag_str):]
                 
                 result, count = generate_from_text_logic(
                     text_content, api_key,

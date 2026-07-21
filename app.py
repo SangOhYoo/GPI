@@ -91,8 +91,8 @@ API_URL_TEMPLATE = (
     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 )
 API_STREAM_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse"
-MIN_PROMPT_WORDS = 50
-MAX_PROMPT_WORDS = 175
+MIN_PROMPT_WORDS = 75
+MAX_PROMPT_WORDS = 250
 MAX_UI_HISTORY = 20
 MAX_FILE_MB = 20
 MAX_OUTPUT_TOKENS = 5000
