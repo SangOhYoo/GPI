@@ -421,6 +421,23 @@ class PromptApp:
 
     def on_model_change(self, event=None):
         new_model = self.model_var.get()
+        
+        if new_model == "local-llama-cpp":
+            current_values = list(self.api_key_combo["values"])
+            if "llama.cpp" not in current_values:
+                current_values.append("llama.cpp")
+                self.api_key_combo["values"] = current_values
+            self.api_key_name_var.set("llama.cpp")
+        else:
+            if self.api_key_name_var.get() == "llama.cpp":
+                current_values = list(self.api_key_combo["values"])
+                if "Default" in current_values:
+                    self.api_key_name_var.set("Default")
+                elif current_values and current_values[0] != "llama.cpp":
+                    self.api_key_name_var.set(current_values[0])
+                else:
+                    self.api_key_name_var.set("")
+        
         key_name = self.api_key_name_var.get()
         api_key = get_api_key(key_name)
         if new_model != "local-llama-cpp" and not api_key:
