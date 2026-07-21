@@ -73,6 +73,7 @@ class PromptApp:
         # History State
         self.image_history_indices = []
         self.text_history_indices = []
+        self.current_history_index = None
         
         # OLE Drag and Drop State
         self._win_drop_data_obj = None
@@ -291,6 +292,7 @@ class PromptApp:
         en_toolbar = ttk.Frame(en_frame)
         en_toolbar.pack(fill="x", padx=SPACING["sm"], pady=(SPACING["xs"], 0))
         ttk.Button(en_toolbar, text="복사 (Copy)", command=self.on_copy_en).pack(side="right")
+        ttk.Button(en_toolbar, text="저장 (Save)", command=self.on_save_edits).pack(side="right", padx=(0, SPACING["sm"]))
         
         self.output_text = tk.Text(en_frame, wrap="word", height=8, font=FONTS["monospace"])
         self.output_text.pack(fill="both", expand=True, padx=SPACING["sm"], pady=SPACING["sm"])
@@ -303,6 +305,7 @@ class PromptApp:
         ko_toolbar = ttk.Frame(ko_frame)
         ko_toolbar.pack(fill="x", padx=SPACING["sm"], pady=(SPACING["xs"], 0))
         ttk.Button(ko_toolbar, text="복사 (Copy)", command=self.on_copy_ko).pack(side="right")
+        ttk.Button(ko_toolbar, text="저장 (Save)", command=self.on_save_edits).pack(side="right", padx=(0, SPACING["sm"]))
         
         self.translation_text = tk.Text(ko_frame, wrap="word", height=8, font=FONTS["monospace"], foreground=COLORS["text_secondary"])
         self.translation_text.pack(fill="both", expand=True, padx=SPACING["sm"], pady=SPACING["sm"])
@@ -315,6 +318,7 @@ class PromptApp:
         zh_toolbar = ttk.Frame(zh_frame)
         zh_toolbar.pack(fill="x", padx=SPACING["sm"], pady=(SPACING["xs"], 0))
         ttk.Button(zh_toolbar, text="복사 (Copy)", command=self.on_copy_zh).pack(side="right")
+        ttk.Button(zh_toolbar, text="저장 (Save)", command=self.on_save_edits).pack(side="right", padx=(0, SPACING["sm"]))
         
         self.translation_zh_text = tk.Text(zh_frame, wrap="word", height=8, font=FONTS["monospace"], foreground=COLORS["text_secondary"])
         self.translation_zh_text.pack(fill="both", expand=True, padx=SPACING["sm"], pady=SPACING["sm"])
@@ -614,6 +618,7 @@ class PromptApp:
             self.history.append(entry)
         else:
             self.history.append(result)
+        self.current_history_index = len(self.history) - 1
         self.refresh_history_list()
         self.status_var.set("생성 및 번역 완료")
         
@@ -640,6 +645,30 @@ class PromptApp:
             self.root.clipboard_clear()
             self.root.clipboard_append(text)
             self.status_var.set("중국어 번역이 클립보드에 복사되었습니다.")
+
+    def on_save_edits(self):
+        if getattr(self, 'current_history_index', None) is None:
+            messagebox.showwarning("알림", "저장할 항목이 선택되지 않았습니다. 히스토리를 선택하거나 생성하세요.")
+            return
+            
+        if self.current_history_index >= len(self.history):
+            return
+            
+        en_text = self.output_text.get("1.0", "end-1c").strip()
+        ko_text = self.translation_text.get("1.0", "end-1c").strip()
+        zh_text = self.translation_zh_text.get("1.0", "end-1c").strip()
+        
+        self.history[self.current_history_index]["en"] = en_text
+        self.history[self.current_history_index]["ko"] = ko_text
+        self.history[self.current_history_index]["zh"] = zh_text
+        
+        from ..core.prompt import save_all_history
+        if save_all_history(self.history):
+            self.refresh_history_list()
+            self.status_var.set("수정 사항이 성공적으로 저장되었습니다.")
+            messagebox.showinfo("알림", "수정 사항이 성공적으로 저장되었습니다.")
+        else:
+            messagebox.showerror("오류", "저장에 실패했습니다.")
 
     def on_error(self, err):
         self.set_busy(False)
@@ -675,6 +704,7 @@ class PromptApp:
             return
             
         entry = self.history[real_idx]
+        self.current_history_index = real_idx
         
         self.output_text.delete("1.0", "end")
         self.output_text.insert("1.0", entry["en"])
