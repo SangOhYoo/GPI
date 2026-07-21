@@ -108,13 +108,13 @@ def optimize_image_bytes(data, mime_type, source_type, high_fidelity=False):
     except Exception:
         return (data, {"optimized": False, "reason": "최적화 실패", "source": source_type})
 
-def prepare_image_bytes(data, mime_type, source_type, high_fidelity=False):
+def prepare_image_bytes(data, mime_type, source_type, high_fidelity=False, bypass_size_limit=False):
     optimized_data, info = optimize_image_bytes(data, mime_type, source_type, high_fidelity=high_fidelity)
     if info.get("optimized"):
         log_event("image_optimize", info)
     
     size_mb = len(optimized_data) / (1024 * 1024)
-    if size_mb > MAX_FILE_MB:
+    if not bypass_size_limit and size_mb > MAX_FILE_MB:
         raise ValueError(f"이미지 용량이 {MAX_FILE_MB}MB를 초과했습니다.")
     return optimized_data, len(optimized_data)
 

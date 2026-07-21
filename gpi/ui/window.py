@@ -502,9 +502,11 @@ class PromptApp:
                 if not mime:
                     raise ValueError("지원하지 않거나 손상된 이미지입니다.")
                 
+                is_llama = (self.model_var.get() == "local-llama-cpp")
                 prepared_data, _ = prepare_image_bytes(
                     data, mime, self.image_source["type"],
-                    high_fidelity=self.high_fidelity_var.get()
+                    high_fidelity=self.high_fidelity_var.get(),
+                    bypass_size_limit=is_llama
                 )
                 
                 # Unified streaming handler for three languages
@@ -938,7 +940,8 @@ class PromptApp:
         
         def worker():
             try:
-                data, mime = download_image_from_url(url)
+                is_llama = (self.model_var.get() == "local-llama-cpp")
+                data, mime = download_image_from_url(url, bypass_size_limit=is_llama)
                 self.root.after(0, lambda: self.set_image_source({
                     "type": "url_data", "value": data, "mime_type": mime, "url": url
                 }))
@@ -1169,7 +1172,8 @@ class PromptApp:
         self.status_var.set("URL 다운로드 대기 중...")
         def worker():
             try:
-                data, mime = download_image_from_url(url)
+                is_llama = (self.model_var.get() == "local-llama-cpp")
+                data, mime = download_image_from_url(url, bypass_size_limit=is_llama)
                 source = {"type": "url_data", "value": data, "mime_type": mime, "url": url}
                 self.root.after(0, lambda: self.add_to_generation_queue([source]))
             except Exception as e:

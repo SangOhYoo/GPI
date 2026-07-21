@@ -64,7 +64,7 @@ def fetch_available_models(api_key):
     except Exception as e:
         raise RuntimeError(f"모델 목록 가져오기 실패: {str(e)}")
 
-def download_image_from_url(url, cancel_check=None):
+def download_image_from_url(url, cancel_check=None, bypass_size_limit=False):
     headers = {
         "User-Agent": "Mozilla/5.0",
         "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
@@ -91,7 +91,7 @@ def download_image_from_url(url, cancel_check=None):
                 if not chunk:
                     break
                 total += len(chunk)
-                if total > MAX_FILE_MB * 1024 * 1024:
+                if not bypass_size_limit and total > MAX_FILE_MB * 1024 * 1024:
                     raise ValueError(f"이미지 용량이 {MAX_FILE_MB}MB를 초과했습니다.")
                 chunks.append(chunk)
             
