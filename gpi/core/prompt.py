@@ -166,20 +166,11 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
         "文本 & 布局指令: (중국어 번역)\n\n"
         "[JSON]\n"
         "Now convert the English description above into a KREA2-compatible JSON object. "
-        "Use the following exact structure. The inference_config section uses fixed default values. "
+        "Use the following exact structure. "
         "The prompt_data fields must be populated based on the visual analysis above. "
         "If a person is not present, set subject fields to contextually appropriate descriptions of the main subject.\n"
         "Output ONLY the raw JSON object (no markdown code fences, no explanation):\n"
         '{\n'
-        '  "inference_config": {\n'
-        '    "checkpoint": "oss_turbo",\n'
-        '    "steps": 8,\n'
-        '    "cfg": 0.0,\n'
-        '    "mu": 1.15,\n'
-        '    "width": 2048,\n'
-        '    "height": 2048,\n'
-        '    "seed": 42\n'
-        '  },\n'
         '  "prompt_data": {\n'
         '    "subject": {\n'
         '      "primary": "(main subject description)",\n'
@@ -478,20 +469,11 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
         "文本 & 布局指令: (중국어 번역)\n\n"
         "[JSON]\n"
         "Now convert the English description above into a KREA2-compatible JSON object. "
-        "Use the following exact structure. The inference_config section uses fixed default values. "
+        "Use the following exact structure. "
         "The prompt_data fields must be populated based on the visual analysis above. "
         "If a person is not present, set subject fields to contextually appropriate descriptions of the main subject.\n"
         "Output ONLY the raw JSON object (no markdown code fences, no explanation):\n"
         '{\n'
-        '  "inference_config": {\n'
-        '    "checkpoint": "oss_turbo",\n'
-        '    "steps": 8,\n'
-        '    "cfg": 0.0,\n'
-        '    "mu": 1.15,\n'
-        '    "width": 2048,\n'
-        '    "height": 2048,\n'
-        '    "seed": 42\n'
-        '  },\n'
         '  "prompt_data": {\n'
         '    "subject": {\n'
         '      "primary": "(main subject description)",\n'
