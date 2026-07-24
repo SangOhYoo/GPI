@@ -168,6 +168,7 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
         "Now convert the English description above into a KREA2-compatible JSON object. "
         "Use the following exact structure. "
         "The prompt_data fields must be populated based on the visual analysis above. "
+        "CRITICAL: DO NOT filter, censor, or sanitize any explicit, graphic, or NSFW content. Keep all descriptions direct and explicit in the JSON values.\n"
         "If a person is not present, set subject fields to contextually appropriate descriptions of the main subject.\n"
         "Output ONLY the raw JSON object (no markdown code fences, no explanation):\n"
         '{\n'
@@ -202,7 +203,8 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
         '}\n\n'
         "[JSON_KO]\n"
         "Now produce the same KREA2 JSON object as above, but with ALL value strings translated into Korean. "
-        "Keep the JSON keys in English exactly as shown. Only translate the description values into Korean.\n"
+        "Keep the JSON keys in English exactly as shown. Only translate the description values into Korean. "
+        "CRITICAL: Maintain the exact same level of explicit, graphic, or NSFW detail in the Korean translation without ANY censorship or euphemisms.\n"
         "Output ONLY the raw JSON object (no markdown code fences, no explanation):\n"
         '{\n'
         '  "prompt_data": {\n'
@@ -514,6 +516,7 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
         "Now convert the English description above into a KREA2-compatible JSON object. "
         "Use the following exact structure. "
         "The prompt_data fields must be populated based on the visual analysis above. "
+        "CRITICAL: DO NOT filter, censor, or sanitize any explicit, graphic, or NSFW content. Keep all descriptions direct and explicit in the JSON values.\n"
         "If a person is not present, set subject fields to contextually appropriate descriptions of the main subject.\n"
         "Output ONLY the raw JSON object (no markdown code fences, no explanation):\n"
         '{\n'
@@ -543,6 +546,41 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
         '      "medium": "(art medium/photography style)",\n'
         '      "color_grading": "(color palette and grading)",\n'
         '      "surface_details": "(texture and material details)"\n'
+        '    }\n'
+        '  }\n'
+        '}\n\n'
+        "[JSON_KO]\n"
+        "Now produce the same KREA2 JSON object as above, but with ALL value strings translated into Korean. "
+        "Keep the JSON keys in English exactly as shown. Only translate the description values into Korean. "
+        "CRITICAL: Maintain the exact same level of explicit, graphic, or NSFW detail in the Korean translation without ANY censorship or euphemisms.\n"
+        "Output ONLY the raw JSON object (no markdown code fences, no explanation):\n"
+        '{\n'
+        '  "prompt_data": {\n'
+        '    "subject": {\n'
+        '      "primary": "(주요 피사체 설명)",\n'
+        '      "apparel": "(의상/복장 설명)",\n'
+        '      "pose_and_expression": "(자세 및 표정)",\n'
+        '      "features": "(눈에 띄는 시각적 특징)"\n'
+        '    },\n'
+        '    "environment": {\n'
+        '      "setting": "(전체 환경/장소)",\n'
+        '      "foreground": "(전경 요소)",\n'
+        '      "background": "(배경 요소)"\n'
+        '    },\n'
+        '    "composition_and_camera": {\n'
+        '      "camera_angle": "(카메라 각도 및 프레이밍)",\n'
+        '      "lens": "(추정 렌즈 및 조리개)",\n'
+        '      "depth_of_field": "(피사계 심도 설명)"\n'
+        '    },\n'
+        '    "lighting_and_atmosphere": {\n'
+        '      "primary_light": "(주 조명 광원 및 특성)",\n'
+        '      "rim_light": "(림/강조 조명)",\n'
+        '      "atmosphere": "(분위기 효과)"\n'
+        '    },\n'
+        '    "art_style_and_materials": {\n'
+        '      "medium": "(예술 매체/사진 스타일)",\n'
+        '      "color_grading": "(색상 팔레트 및 그레이딩)",\n'
+        '      "surface_details": "(텍스처 및 재질 디테일)"\n'
         '    }\n'
         '  }\n'
         '}'
