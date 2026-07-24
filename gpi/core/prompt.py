@@ -163,7 +163,52 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
         "相机: (중국어 번역)\n"
         "氛围/颜色: (중국어 번역)\n"
         "风格: (중국어 번역)\n"
-        "文本 & 布局指令: (중국어 번역)"
+        "文本 & 布局指令: (중국어 번역)\n\n"
+        "[JSON]\n"
+        "Now convert the English description above into a KREA2-compatible JSON object. "
+        "Use the following exact structure. The inference_config section uses fixed default values. "
+        "The prompt_data fields must be populated based on the visual analysis above. "
+        "If a person is not present, set subject fields to contextually appropriate descriptions of the main subject.\n"
+        "Output ONLY the raw JSON object (no markdown code fences, no explanation):\n"
+        '{\n'
+        '  "inference_config": {\n'
+        '    "checkpoint": "oss_turbo",\n'
+        '    "steps": 8,\n'
+        '    "cfg": 0.0,\n'
+        '    "mu": 1.15,\n'
+        '    "width": 2048,\n'
+        '    "height": 2048,\n'
+        '    "seed": 42\n'
+        '  },\n'
+        '  "prompt_data": {\n'
+        '    "subject": {\n'
+        '      "primary": "(main subject description)",\n'
+        '      "apparel": "(clothing/outfit description)",\n'
+        '      "pose_and_expression": "(pose and facial expression)",\n'
+        '      "features": "(distinctive visual features)"\n'
+        '    },\n'
+        '    "environment": {\n'
+        '      "setting": "(overall environment/location)",\n'
+        '      "foreground": "(foreground elements)",\n'
+        '      "background": "(background elements)"\n'
+        '    },\n'
+        '    "composition_and_camera": {\n'
+        '      "camera_angle": "(camera angle and framing)",\n'
+        '      "lens": "(estimated lens and aperture)",\n'
+        '      "depth_of_field": "(depth of field description)"\n'
+        '    },\n'
+        '    "lighting_and_atmosphere": {\n'
+        '      "primary_light": "(main light source and quality)",\n'
+        '      "rim_light": "(rim/accent lighting)",\n'
+        '      "atmosphere": "(atmospheric effects)"\n'
+        '    },\n'
+        '    "art_style_and_materials": {\n'
+        '      "medium": "(art medium/photography style)",\n'
+        '      "color_grading": "(color palette and grading)",\n'
+        '      "surface_details": "(texture and material details)"\n'
+        '    }\n'
+        '  }\n'
+        '}'
     )
     return instr
 
@@ -173,6 +218,7 @@ def append_history(result, image_source=None):
             "en": result["en"].strip(),
             "ko": result["ko"].strip(),
             "zh": result.get("zh", "").strip(),
+            "json": result.get("json", "").strip(),
             "input_text": result.get("input_text", ""),
             "keyword": result.get("keyword", "")
         }
@@ -290,6 +336,7 @@ def generate_prompt_logic(image_data, mime_type, api_key, model_name, thinking_l
     en_part = ""
     ko_part = ""
     zh_part = ""
+    json_part = ""
     
     if "[ENGLISH]" in full_text and "[KOREAN]" in full_text:
         # Split by the LAST [ENGLISH] tag to skip any reasoning traces
@@ -304,18 +351,34 @@ def generate_prompt_logic(image_data, mime_type, api_key, model_name, thinking_l
             if "[CHINESE]" in remainder:
                 zh_parts = remainder.split("[CHINESE]", 1)
                 ko_part = zh_parts[0].strip()
-                zh_part = zh_parts[1].strip()
+                zh_remainder = zh_parts[1]
+                if "[JSON]" in zh_remainder:
+                    json_split = zh_remainder.split("[JSON]", 1)
+                    zh_part = json_split[0].strip()
+                    json_part = json_split[1].strip()
+                else:
+                    zh_part = zh_remainder.strip()
             else:
-                ko_part = remainder.strip()
+                if "[JSON]" in remainder:
+                    json_split = remainder.split("[JSON]", 1)
+                    ko_part = json_split[0].strip()
+                    json_part = json_split[1].strip()
+                else:
+                    ko_part = remainder.strip()
         else:
-            en_part = actual_output.replace("[KOREAN]", "").replace("[CHINESE]", "").strip()
+            en_part = actual_output.replace("[KOREAN]", "").replace("[CHINESE]", "").replace("[JSON]", "").strip()
     else:
         # Fallback if AI skips tags completely
-        en_part = full_text
+        if "[JSON]" in full_text:
+            json_split = full_text.split("[JSON]", 1)
+            en_part = json_split[0].strip()
+            json_part = json_split[1].strip()
+        else:
+            en_part = full_text
     
     word_count = extract_word_count(en_part)
     log_event("generate_success", {"model": model_name, "word_count": word_count, "multilingual": True})
-    return {"en": en_part, "ko": ko_part, "zh": zh_part, "keyword": keyword_text}, word_count
+    return {"en": en_part, "ko": ko_part, "zh": zh_part, "json": json_part, "keyword": keyword_text}, word_count
 
 def build_text_to_prompt_instruction(keyword_text='', model_name=None):
     if model_name == "local-llama-cpp":
@@ -412,7 +475,52 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
         "相机: (중국어 번역)\n"
         "氛围/颜色: (중국어 번역)\n"
         "风格: (중국어 번역)\n"
-        "文本 & 布局指令: (중국어 번역)"
+        "文本 & 布局指令: (중국어 번역)\n\n"
+        "[JSON]\n"
+        "Now convert the English description above into a KREA2-compatible JSON object. "
+        "Use the following exact structure. The inference_config section uses fixed default values. "
+        "The prompt_data fields must be populated based on the visual analysis above. "
+        "If a person is not present, set subject fields to contextually appropriate descriptions of the main subject.\n"
+        "Output ONLY the raw JSON object (no markdown code fences, no explanation):\n"
+        '{\n'
+        '  "inference_config": {\n'
+        '    "checkpoint": "oss_turbo",\n'
+        '    "steps": 8,\n'
+        '    "cfg": 0.0,\n'
+        '    "mu": 1.15,\n'
+        '    "width": 2048,\n'
+        '    "height": 2048,\n'
+        '    "seed": 42\n'
+        '  },\n'
+        '  "prompt_data": {\n'
+        '    "subject": {\n'
+        '      "primary": "(main subject description)",\n'
+        '      "apparel": "(clothing/outfit description)",\n'
+        '      "pose_and_expression": "(pose and facial expression)",\n'
+        '      "features": "(distinctive visual features)"\n'
+        '    },\n'
+        '    "environment": {\n'
+        '      "setting": "(overall environment/location)",\n'
+        '      "foreground": "(foreground elements)",\n'
+        '      "background": "(background elements)"\n'
+        '    },\n'
+        '    "composition_and_camera": {\n'
+        '      "camera_angle": "(camera angle and framing)",\n'
+        '      "lens": "(estimated lens and aperture)",\n'
+        '      "depth_of_field": "(depth of field description)"\n'
+        '    },\n'
+        '    "lighting_and_atmosphere": {\n'
+        '      "primary_light": "(main light source and quality)",\n'
+        '      "rim_light": "(rim/accent lighting)",\n'
+        '      "atmosphere": "(atmospheric effects)"\n'
+        '    },\n'
+        '    "art_style_and_materials": {\n'
+        '      "medium": "(art medium/photography style)",\n'
+        '      "color_grading": "(color palette and grading)",\n'
+        '      "surface_details": "(texture and material details)"\n'
+        '    }\n'
+        '  }\n'
+        '}'
     )
     return instr
 
@@ -443,6 +551,7 @@ def generate_from_text_logic(text_input, api_key, model_name, thinking_level, ke
     en_part = ""
     ko_part = ""
     zh_part = ""
+    json_part = ""
     
     if "[ENGLISH]" in full_text and "[KOREAN]" in full_text:
         # Split by the LAST [ENGLISH] tag to skip any reasoning traces
@@ -457,15 +566,31 @@ def generate_from_text_logic(text_input, api_key, model_name, thinking_level, ke
             if "[CHINESE]" in remainder:
                 zh_parts = remainder.split("[CHINESE]", 1)
                 ko_part = zh_parts[0].strip()
-                zh_part = zh_parts[1].strip()
+                zh_remainder = zh_parts[1]
+                if "[JSON]" in zh_remainder:
+                    json_split = zh_remainder.split("[JSON]", 1)
+                    zh_part = json_split[0].strip()
+                    json_part = json_split[1].strip()
+                else:
+                    zh_part = zh_remainder.strip()
             else:
-                ko_part = remainder.strip()
+                if "[JSON]" in remainder:
+                    json_split = remainder.split("[JSON]", 1)
+                    ko_part = json_split[0].strip()
+                    json_part = json_split[1].strip()
+                else:
+                    ko_part = remainder.strip()
         else:
-            en_part = actual_output.replace("[KOREAN]", "").replace("[CHINESE]", "").strip()
+            en_part = actual_output.replace("[KOREAN]", "").replace("[CHINESE]", "").replace("[JSON]", "").strip()
     else:
         # Fallback if AI skips tags completely
-        en_part = full_text
+        if "[JSON]" in full_text:
+            json_split = full_text.split("[JSON]", 1)
+            en_part = json_split[0].strip()
+            json_part = json_split[1].strip()
+        else:
+            en_part = full_text
     
     word_count = extract_word_count(en_part)
     log_event("generate_text_success", {"model": model_name, "word_count": word_count})
-    return {"en": en_part, "ko": ko_part, "zh": zh_part, "keyword": keyword_text}, word_count
+    return {"en": en_part, "ko": ko_part, "zh": zh_part, "json": json_part, "keyword": keyword_text}, word_count
