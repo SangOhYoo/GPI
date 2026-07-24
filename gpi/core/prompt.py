@@ -199,6 +199,40 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
         '      "surface_details": "(texture and material details)"\n'
         '    }\n'
         '  }\n'
+        '}\n\n'
+        "[JSON_KO]\n"
+        "Now produce the same KREA2 JSON object as above, but with ALL value strings translated into Korean. "
+        "Keep the JSON keys in English exactly as shown. Only translate the description values into Korean.\n"
+        "Output ONLY the raw JSON object (no markdown code fences, no explanation):\n"
+        '{\n'
+        '  "prompt_data": {\n'
+        '    "subject": {\n'
+        '      "primary": "(주요 피사체 설명)",\n'
+        '      "apparel": "(의상/복장 설명)",\n'
+        '      "pose_and_expression": "(자세 및 표정)",\n'
+        '      "features": "(눈에 띄는 시각적 특징)"\n'
+        '    },\n'
+        '    "environment": {\n'
+        '      "setting": "(전체 환경/장소)",\n'
+        '      "foreground": "(전경 요소)",\n'
+        '      "background": "(배경 요소)"\n'
+        '    },\n'
+        '    "composition_and_camera": {\n'
+        '      "camera_angle": "(카메라 각도 및 프레이밍)",\n'
+        '      "lens": "(추정 렌즈 및 조리개)",\n'
+        '      "depth_of_field": "(피사계 심도 설명)"\n'
+        '    },\n'
+        '    "lighting_and_atmosphere": {\n'
+        '      "primary_light": "(주 조명 광원 및 특성)",\n'
+        '      "rim_light": "(림/강조 조명)",\n'
+        '      "atmosphere": "(분위기 효과)"\n'
+        '    },\n'
+        '    "art_style_and_materials": {\n'
+        '      "medium": "(예술 매체/사진 스타일)",\n'
+        '      "color_grading": "(색상 팔레트 및 그레이딩)",\n'
+        '      "surface_details": "(텍스처 및 재질 디테일)"\n'
+        '    }\n'
+        '  }\n'
         '}'
     )
     return instr
@@ -210,6 +244,7 @@ def append_history(result, image_source=None):
             "ko": result["ko"].strip(),
             "zh": result.get("zh", "").strip(),
             "json": result.get("json", "").strip(),
+            "json_ko": result.get("json_ko", "").strip(),
             "input_text": result.get("input_text", ""),
             "keyword": result.get("keyword", "")
         }
@@ -328,6 +363,28 @@ def generate_prompt_logic(image_data, mime_type, api_key, model_name, thinking_l
     ko_part = ""
     zh_part = ""
     json_part = ""
+    json_ko_part = ""
+    
+    # Helper to split json and json_ko from a remainder string
+    def _split_json_parts(text):
+        j_en = ""
+        j_ko = ""
+        before = text
+        if "[JSON]" in text:
+            sp = text.split("[JSON]", 1)
+            before = sp[0].strip()
+            j_remainder = sp[1]
+            if "[JSON_KO]" in j_remainder:
+                sp2 = j_remainder.split("[JSON_KO]", 1)
+                j_en = sp2[0].strip()
+                j_ko = sp2[1].strip()
+            else:
+                j_en = j_remainder.strip()
+        elif "[JSON_KO]" in text:
+            sp = text.split("[JSON_KO]", 1)
+            before = sp[0].strip()
+            j_ko = sp[1].strip()
+        return before, j_en, j_ko
     
     if "[ENGLISH]" in full_text and "[KOREAN]" in full_text:
         # Split by the LAST [ENGLISH] tag to skip any reasoning traces
@@ -342,34 +399,20 @@ def generate_prompt_logic(image_data, mime_type, api_key, model_name, thinking_l
             if "[CHINESE]" in remainder:
                 zh_parts = remainder.split("[CHINESE]", 1)
                 ko_part = zh_parts[0].strip()
-                zh_remainder = zh_parts[1]
-                if "[JSON]" in zh_remainder:
-                    json_split = zh_remainder.split("[JSON]", 1)
-                    zh_part = json_split[0].strip()
-                    json_part = json_split[1].strip()
-                else:
-                    zh_part = zh_remainder.strip()
+                zh_part, json_part, json_ko_part = _split_json_parts(zh_parts[1])
             else:
-                if "[JSON]" in remainder:
-                    json_split = remainder.split("[JSON]", 1)
-                    ko_part = json_split[0].strip()
-                    json_part = json_split[1].strip()
-                else:
-                    ko_part = remainder.strip()
+                ko_part, json_part, json_ko_part = _split_json_parts(remainder)
         else:
-            en_part = actual_output.replace("[KOREAN]", "").replace("[CHINESE]", "").replace("[JSON]", "").strip()
+            en_part = actual_output.replace("[KOREAN]", "").replace("[CHINESE]", "").replace("[JSON]", "").replace("[JSON_KO]", "").strip()
     else:
         # Fallback if AI skips tags completely
-        if "[JSON]" in full_text:
-            json_split = full_text.split("[JSON]", 1)
-            en_part = json_split[0].strip()
-            json_part = json_split[1].strip()
-        else:
+        en_part, json_part, json_ko_part = _split_json_parts(full_text)
+        if not en_part and not json_part:
             en_part = full_text
     
     word_count = extract_word_count(en_part)
     log_event("generate_success", {"model": model_name, "word_count": word_count, "multilingual": True})
-    return {"en": en_part, "ko": ko_part, "zh": zh_part, "json": json_part, "keyword": keyword_text}, word_count
+    return {"en": en_part, "ko": ko_part, "zh": zh_part, "json": json_part, "json_ko": json_ko_part, "keyword": keyword_text}, word_count
 
 def build_text_to_prompt_instruction(keyword_text='', model_name=None):
     if model_name == "local-llama-cpp":
@@ -534,6 +577,28 @@ def generate_from_text_logic(text_input, api_key, model_name, thinking_level, ke
     ko_part = ""
     zh_part = ""
     json_part = ""
+    json_ko_part = ""
+    
+    # Helper to split json and json_ko from a remainder string
+    def _split_json_parts(text):
+        j_en = ""
+        j_ko = ""
+        before = text
+        if "[JSON]" in text:
+            sp = text.split("[JSON]", 1)
+            before = sp[0].strip()
+            j_remainder = sp[1]
+            if "[JSON_KO]" in j_remainder:
+                sp2 = j_remainder.split("[JSON_KO]", 1)
+                j_en = sp2[0].strip()
+                j_ko = sp2[1].strip()
+            else:
+                j_en = j_remainder.strip()
+        elif "[JSON_KO]" in text:
+            sp = text.split("[JSON_KO]", 1)
+            before = sp[0].strip()
+            j_ko = sp[1].strip()
+        return before, j_en, j_ko
     
     if "[ENGLISH]" in full_text and "[KOREAN]" in full_text:
         # Split by the LAST [ENGLISH] tag to skip any reasoning traces
@@ -548,31 +613,17 @@ def generate_from_text_logic(text_input, api_key, model_name, thinking_level, ke
             if "[CHINESE]" in remainder:
                 zh_parts = remainder.split("[CHINESE]", 1)
                 ko_part = zh_parts[0].strip()
-                zh_remainder = zh_parts[1]
-                if "[JSON]" in zh_remainder:
-                    json_split = zh_remainder.split("[JSON]", 1)
-                    zh_part = json_split[0].strip()
-                    json_part = json_split[1].strip()
-                else:
-                    zh_part = zh_remainder.strip()
+                zh_part, json_part, json_ko_part = _split_json_parts(zh_parts[1])
             else:
-                if "[JSON]" in remainder:
-                    json_split = remainder.split("[JSON]", 1)
-                    ko_part = json_split[0].strip()
-                    json_part = json_split[1].strip()
-                else:
-                    ko_part = remainder.strip()
+                ko_part, json_part, json_ko_part = _split_json_parts(remainder)
         else:
-            en_part = actual_output.replace("[KOREAN]", "").replace("[CHINESE]", "").replace("[JSON]", "").strip()
+            en_part = actual_output.replace("[KOREAN]", "").replace("[CHINESE]", "").replace("[JSON]", "").replace("[JSON_KO]", "").strip()
     else:
         # Fallback if AI skips tags completely
-        if "[JSON]" in full_text:
-            json_split = full_text.split("[JSON]", 1)
-            en_part = json_split[0].strip()
-            json_part = json_split[1].strip()
-        else:
+        en_part, json_part, json_ko_part = _split_json_parts(full_text)
+        if not en_part and not json_part:
             en_part = full_text
     
     word_count = extract_word_count(en_part)
     log_event("generate_text_success", {"model": model_name, "word_count": word_count})
-    return {"en": en_part, "ko": ko_part, "zh": zh_part, "json": json_part, "keyword": keyword_text}, word_count
+    return {"en": en_part, "ko": ko_part, "zh": zh_part, "json": json_part, "json_ko": json_ko_part, "keyword": keyword_text}, word_count

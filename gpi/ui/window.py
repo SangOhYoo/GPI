@@ -41,7 +41,7 @@ class PromptApp:
     def __init__(self, root):
         self.root = root
         self.root.title("GPI - Gemini Prompt Instrument")
-        self.root.geometry("1102x1520")
+        self.root.geometry("1200x1680")
         
         # State
         self.image_source = None
@@ -336,6 +336,19 @@ class PromptApp:
         self.json_output_text = tk.Text(json_frame, wrap="word", height=8, font=FONTS["monospace"], foreground=COLORS["text_secondary"])
         self.json_output_text.pack(fill="both", expand=True, padx=SPACING["sm"], pady=SPACING["sm"])
         
+        # KREA2 JSON Korean Output
+        json_ko_frame = ttk.LabelFrame(self.output_paned, text="KREA2 JSON (한국어)", style="Card.TLabelframe")
+        self.output_paned.add(json_ko_frame, weight=1)
+        
+        # Copy Button for JSON Korean
+        json_ko_toolbar = ttk.Frame(json_ko_frame)
+        json_ko_toolbar.pack(fill="x", padx=SPACING["sm"], pady=(SPACING["xs"], 0))
+        ttk.Button(json_ko_toolbar, text="복사 (Copy)", command=self.on_copy_json_ko).pack(side="right")
+        ttk.Button(json_ko_toolbar, text="저장 (Save)", command=self.on_save_edits).pack(side="right", padx=(0, SPACING["sm"]))
+        
+        self.json_ko_output_text = tk.Text(json_ko_frame, wrap="word", height=8, font=FONTS["monospace"], foreground=COLORS["text_secondary"])
+        self.json_ko_output_text.pack(fill="both", expand=True, padx=SPACING["sm"], pady=SPACING["sm"])
+        
         # History
         history_frame = ttk.LabelFrame(right_side, text="최근 히스토리", style="Card.TLabelframe")
         history_frame.pack(fill="both", expand=True, pady=(SPACING["md"], 0))
@@ -523,6 +536,7 @@ class PromptApp:
         self.translation_text.delete("1.0", "end")
         self.translation_zh_text.delete("1.0", "end")
         self.json_output_text.delete("1.0", "end")
+        self.json_ko_output_text.delete("1.0", "end")
         
         def worker():
             try:
@@ -551,7 +565,7 @@ class PromptApp:
                     nonlocal current_tag
                     
                     while chunk:
-                        tags = {"[ENGLISH]": "en", "[KOREAN]": "ko", "[CHINESE]": "zh", "[JSON]": "json"}
+                        tags = {"[ENGLISH]": "en", "[KOREAN]": "ko", "[CHINESE]": "zh", "[JSON]": "json", "[JSON_KO]": "json_ko"}
                         first_tag_pos = -1
                         first_tag_str = ""
                         
@@ -574,6 +588,9 @@ class PromptApp:
                             elif current_tag == "json":
                                 self.root.after(0, lambda c=chunk: self.json_output_text.insert("end", c))
                                 self.root.after(0, lambda: self.json_output_text.see("end"))
+                            elif current_tag == "json_ko":
+                                self.root.after(0, lambda c=chunk: self.json_ko_output_text.insert("end", c))
+                                self.root.after(0, lambda: self.json_ko_output_text.see("end"))
                             break
                             
                         pre_text = chunk[:first_tag_pos]
@@ -586,6 +603,8 @@ class PromptApp:
                                 self.root.after(0, lambda p=pre_text: self.translation_zh_text.insert("end", p))
                             elif current_tag == "json":
                                 self.root.after(0, lambda p=pre_text: self.json_output_text.insert("end", p))
+                            elif current_tag == "json_ko":
+                                self.root.after(0, lambda p=pre_text: self.json_ko_output_text.insert("end", p))
                                 
                         current_tag = tags[first_tag_str]
                         if current_tag == "ko":
@@ -594,6 +613,8 @@ class PromptApp:
                             self.root.after(0, lambda: self.translation_zh_text.delete("1.0", "end"))
                         elif current_tag == "json":
                             self.root.after(0, lambda: self.json_output_text.delete("1.0", "end"))
+                        elif current_tag == "json_ko":
+                            self.root.after(0, lambda: self.json_ko_output_text.delete("1.0", "end"))
                             
                         chunk = chunk[first_tag_pos + len(first_tag_str):]
 
@@ -627,6 +648,7 @@ class PromptApp:
         ko_text = result["ko"]
         zh_text = result.get("zh", "")
         json_text = result.get("json", "")
+        json_ko_text = result.get("json_ko", "")
         self.set_busy(False)
         self.output_text.delete("1.0", "end")
         self.output_text.insert("1.0", en_text)
@@ -636,6 +658,8 @@ class PromptApp:
         self.translation_zh_text.insert("1.0", zh_text)
         self.json_output_text.delete("1.0", "end")
         self.json_output_text.insert("1.0", json_text)
+        self.json_ko_output_text.delete("1.0", "end")
+        self.json_ko_output_text.insert("1.0", json_ko_text)
         
         entry = append_history(result, self.image_source)
         if entry:
@@ -677,6 +701,13 @@ class PromptApp:
             self.root.clipboard_append(text)
             self.status_var.set("KREA2 JSON이 클립보드에 복사되었습니다.")
 
+    def on_copy_json_ko(self):
+        text = self.json_ko_output_text.get("1.0", "end-1c").strip()
+        if text:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            self.status_var.set("KREA2 JSON (한국어)이 클립보드에 복사되었습니다.")
+
     def on_save_edits(self):
         if getattr(self, 'current_history_index', None) is None:
             messagebox.showwarning("알림", "저장할 항목이 선택되지 않았습니다. 히스토리를 선택하거나 생성하세요.")
@@ -694,6 +725,8 @@ class PromptApp:
         self.history[self.current_history_index]["ko"] = ko_text
         self.history[self.current_history_index]["zh"] = zh_text
         self.history[self.current_history_index]["json"] = json_text
+        json_ko_text = self.json_ko_output_text.get("1.0", "end-1c").strip()
+        self.history[self.current_history_index]["json_ko"] = json_ko_text
         
         from ..core.prompt import save_all_history
         if save_all_history(self.history):
@@ -747,6 +780,8 @@ class PromptApp:
         self.translation_zh_text.insert("1.0", entry.get("zh", ""))
         self.json_output_text.delete("1.0", "end")
         self.json_output_text.insert("1.0", entry.get("json", ""))
+        self.json_ko_output_text.delete("1.0", "end")
+        self.json_ko_output_text.insert("1.0", entry.get("json_ko", ""))
         
         # Restore keyword if present
         keyword = entry.get("keyword", "")
@@ -1160,6 +1195,7 @@ class PromptApp:
         self.translation_text.delete("1.0", "end")
         self.translation_zh_text.delete("1.0", "end")
         self.json_output_text.delete("1.0", "end")
+        self.json_ko_output_text.delete("1.0", "end")
 
         def worker():
             try:
@@ -1172,7 +1208,7 @@ class PromptApp:
                     nonlocal current_tag
                     
                     while chunk:
-                        tags = {"[ENGLISH]": "en", "[KOREAN]": "ko", "[CHINESE]": "zh", "[JSON]": "json"}
+                        tags = {"[ENGLISH]": "en", "[KOREAN]": "ko", "[CHINESE]": "zh", "[JSON]": "json", "[JSON_KO]": "json_ko"}
                         first_tag_pos = -1
                         first_tag_str = ""
                         
@@ -1195,6 +1231,9 @@ class PromptApp:
                             elif current_tag == "json":
                                 self.root.after(0, lambda c=chunk: self.json_output_text.insert("end", c))
                                 self.root.after(0, lambda: self.json_output_text.see("end"))
+                            elif current_tag == "json_ko":
+                                self.root.after(0, lambda c=chunk: self.json_ko_output_text.insert("end", c))
+                                self.root.after(0, lambda: self.json_ko_output_text.see("end"))
                             break
                             
                         pre_text = chunk[:first_tag_pos]
@@ -1207,6 +1246,8 @@ class PromptApp:
                                 self.root.after(0, lambda p=pre_text: self.translation_zh_text.insert("end", p))
                             elif current_tag == "json":
                                 self.root.after(0, lambda p=pre_text: self.json_output_text.insert("end", p))
+                            elif current_tag == "json_ko":
+                                self.root.after(0, lambda p=pre_text: self.json_ko_output_text.insert("end", p))
                                 
                         current_tag = tags[first_tag_str]
                         if current_tag == "ko":
@@ -1215,6 +1256,8 @@ class PromptApp:
                             self.root.after(0, lambda: self.translation_zh_text.delete("1.0", "end"))
                         elif current_tag == "json":
                             self.root.after(0, lambda: self.json_output_text.delete("1.0", "end"))
+                        elif current_tag == "json_ko":
+                            self.root.after(0, lambda: self.json_ko_output_text.delete("1.0", "end"))
                             
                         chunk = chunk[first_tag_pos + len(first_tag_str):]
                 
