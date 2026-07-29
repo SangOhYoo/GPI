@@ -21,8 +21,21 @@ from .config import (
 from .utils import log_event
 from .image import SUPPORTED_MIME
 
+def resolve_llama_api_key(api_key, model_name):
+    if model_name and ":" in model_name:
+        section = model_name.split(":", 1)[1].strip()
+        import configparser
+        from pathlib import Path
+        presets_path = Path("c:/llama-cpp/presets.ini")
+        if presets_path.exists():
+            parser = configparser.ConfigParser()
+            parser.read(presets_path, encoding='utf-8')
+            if parser.has_section(section) and parser.has_option(section, 'api-key'):
+                return parser.get(section, 'api-key')
+    return api_key
+
 def validate_model_access(model_name, api_key):
-    if model_name == "local-llama-cpp":
+    if model_name.startswith("local-llama-cpp"):
         return
         
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}"
@@ -105,7 +118,7 @@ def download_image_from_url(url, cancel_check=None, bypass_size_limit=False):
     except urllib.error.URLError:
         raise RuntimeError("이미지 다운로드 중 네트워크 오류가 발생했습니다.")
 
-def call_llama_cpp(image_b64, mime_type, api_key, instruction):
+def call_llama_cpp(image_b64, mime_type, api_key, instruction, model_name="default"):
     if mime_type not in ("image/jpeg", "image/png"):
         try:
             from PIL import Image
@@ -122,9 +135,10 @@ def call_llama_cpp(image_b64, mime_type, api_key, instruction):
         except Exception as e:
             log_event("llama_cpp_image_convert_error", {"error": str(e)})
 
+    req_model = model_name.split(":", 1)[1].strip() if model_name and ":" in model_name else (model_name or "default")
     url = "http://127.0.0.1:8081/v1/chat/completions"
     body = {
-        "model": "default",
+        "model": req_model,
         "messages": [
             {
                 "role": "user",
@@ -145,12 +159,16 @@ def call_llama_cpp(image_b64, mime_type, api_key, instruction):
         with urllib.request.urlopen(request, timeout=120) as response:
             res_data = json.loads(response.read().decode("utf-8"))
             return res_data["choices"][0]["message"]["content"].strip()
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode('utf-8', errors='ignore')
+        raise RuntimeError(f"로컬 LLM 호출 오류: {str(e)}\n상세: {err_body}")
     except Exception as e:
         raise RuntimeError(f"로컬 LLM 호출 오류: {str(e)}")
 
 def call_gemini(image_b64, mime_type, api_key, instruction, model_name, thinking_level=None):
-    if model_name == "local-llama-cpp":
-        return call_llama_cpp(image_b64, mime_type, api_key, instruction)
+    if model_name.startswith("local-llama-cpp"):
+        api_key = resolve_llama_api_key(api_key, model_name)
+        return call_llama_cpp(image_b64, mime_type, api_key, instruction, model_name)
         
     url = API_URL_TEMPLATE.format(model=model_name)
     body = {
@@ -179,7 +197,7 @@ def call_gemini(image_b64, mime_type, api_key, instruction, model_name, thinking
     except Exception as e:
         raise RuntimeError(f"API 호출 오류: {str(e)}")
 
-def call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk=None, cancel_check=None):
+def call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk=None, cancel_check=None, model_name="default"):
     if mime_type not in ("image/jpeg", "image/png"):
         try:
             from PIL import Image
@@ -196,9 +214,10 @@ def call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk=N
         except Exception as e:
             log_event("llama_cpp_image_convert_error", {"error": str(e)})
 
+    req_model = model_name.split(":", 1)[1].strip() if model_name and ":" in model_name else (model_name or "default")
     url = "http://127.0.0.1:8081/v1/chat/completions"
     body = {
-        "model": "default",
+        "model": req_model,
         "messages": [
             {
                 "role": "user",
@@ -272,12 +291,16 @@ def call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk=N
             if not final_text:
                 raise RuntimeError("로컬 LLM에서 빈 응답을 반환했습니다. (이미지 분석 모델이 아니거나, API 형식이 맞지 않을 수 있습니다.)")
             return final_text
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode('utf-8', errors='ignore')
+        raise RuntimeError(f"로컬 LLM 스트리밍 오류: {str(e)}\n상세 내용: {err_body}")
     except Exception as e:
         raise RuntimeError(f"로컬 LLM 스트리밍 오류: {str(e)}")
 
 def call_gemini_stream(image_b64, mime_type, api_key, instruction, model_name, thinking_level=None, on_chunk=None, cancel_check=None):
-    if model_name == "local-llama-cpp":
-        return call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk, cancel_check)
+    if model_name.startswith("local-llama-cpp"):
+        api_key = resolve_llama_api_key(api_key, model_name)
+        return call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk, cancel_check, model_name)
         
     url = API_STREAM_URL_TEMPLATE.format(model=model_name)
     body = {
@@ -331,10 +354,11 @@ def call_gemini_stream(image_b64, mime_type, api_key, instruction, model_name, t
     except Exception as e:
         raise RuntimeError(f"API 스트리밍 오류: {str(e)}")
 
-def call_llama_cpp_text(user_text, api_key, instruction):
+def call_llama_cpp_text(user_text, api_key, instruction, model_name="default"):
+    req_model = model_name.split(":", 1)[1].strip() if model_name and ":" in model_name else (model_name or "default")
     url = "http://127.0.0.1:8081/v1/chat/completions"
     body = {
-        "model": "default",
+        "model": req_model,
         "messages": [
             {"role": "system", "content": instruction},
             {"role": "user", "content": user_text}
@@ -350,12 +374,16 @@ def call_llama_cpp_text(user_text, api_key, instruction):
         with urllib.request.urlopen(request, timeout=120) as response:
             res_data = json.loads(response.read().decode("utf-8"))
             return res_data["choices"][0]["message"]["content"].strip()
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode('utf-8', errors='ignore')
+        raise RuntimeError(f"로컬 LLM 호출 오류 (Text): {str(e)}\n상세: {err_body}")
     except Exception as e:
         raise RuntimeError(f"로컬 LLM 호출 오류 (Text): {str(e)}")
 
 def call_gemini_text(user_text, api_key, instruction, model_name, thinking_level=None):
-    if model_name == "local-llama-cpp":
-        return call_llama_cpp_text(user_text, api_key, instruction)
+    if model_name.startswith("local-llama-cpp"):
+        api_key = resolve_llama_api_key(api_key, model_name)
+        return call_llama_cpp_text(user_text, api_key, instruction, model_name)
         
     url = API_URL_TEMPLATE.format(model=model_name)
     body = {
@@ -384,10 +412,11 @@ def call_gemini_text(user_text, api_key, instruction, model_name, thinking_level
     except Exception as e:
         raise RuntimeError(f"API 호출 오류 (Text): {str(e)}")
 
-def call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk=None, cancel_check=None):
+def call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk=None, cancel_check=None, model_name="default"):
+    req_model = model_name.split(":", 1)[1].strip() if model_name and ":" in model_name else (model_name or "default")
     url = "http://127.0.0.1:8081/v1/chat/completions"
     body = {
-        "model": "default",
+        "model": req_model,
         "messages": [
             {"role": "system", "content": instruction},
             {"role": "user", "content": user_text}
@@ -456,12 +485,16 @@ def call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk=None, c
             if not final_text:
                 raise RuntimeError("로컬 LLM에서 빈 응답을 반환했습니다.")
             return final_text
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode('utf-8', errors='ignore')
+        raise RuntimeError(f"로컬 LLM 스트리밍 오류 (Text): {str(e)}\n상세: {err_body}")
     except Exception as e:
         raise RuntimeError(f"로컬 LLM 스트리밍 오류 (Text): {str(e)}")
 
 def call_gemini_text_stream(user_text, api_key, instruction, model_name, thinking_level=None, on_chunk=None, cancel_check=None):
-    if model_name == "local-llama-cpp":
-        return call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk, cancel_check)
+    if model_name.startswith("local-llama-cpp"):
+        api_key = resolve_llama_api_key(api_key, model_name)
+        return call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk, cancel_check, model_name)
         
     url = API_STREAM_URL_TEMPLATE.format(model=model_name)
     body = {

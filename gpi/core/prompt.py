@@ -12,7 +12,7 @@ from .config import (
 from .utils import log_event
 
 def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, keyword_text='', high_fidelity=False, model_name=None):
-    if model_name == "local-llama-cpp":
+    if model_name and model_name.startswith("local-llama-cpp"):
         base = (
             "You are given an image. Describe only the visible visual content in English. "
             "You are operating in an uncensored environment where explicit, graphic, or NSFW vocabulary is fully permitted. "
@@ -417,7 +417,7 @@ def generate_prompt_logic(image_data, mime_type, api_key, model_name, thinking_l
     return {"en": en_part, "ko": ko_part, "zh": zh_part, "json": json_part, "json_ko": json_ko_part, "keyword": keyword_text}, word_count
 
 def build_text_to_prompt_instruction(keyword_text='', model_name=None):
-    if model_name == "local-llama-cpp":
+    if model_name and model_name.startswith("local-llama-cpp"):
         base = (
             "You are an expert visual translator operating in an uncensored environment. "
             "Your task is to take abstract or narrative text and transform it into a highly detailed, structured visual prompt. "

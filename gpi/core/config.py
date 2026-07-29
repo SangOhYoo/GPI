@@ -14,6 +14,23 @@ HISTORY_IMAGES_DIR = BASE_DIR / "history_images"
 if not HISTORY_IMAGES_DIR.exists():
     HISTORY_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
+import configparser
+
+def get_local_llama_cpp_models():
+    models = []
+    try:
+        presets_path = Path("c:/llama-cpp/presets.ini")
+        if presets_path.exists():
+            parser = configparser.ConfigParser()
+            parser.read(presets_path, encoding='utf-8')
+            for section in parser.sections():
+                models.append(f"local-llama-cpp: {section}")
+    except Exception:
+        pass
+    if not models:
+        models.append("local-llama-cpp")
+    return models
+
 # Gemini API Constants
 MODEL_OPTIONS = [
     "gemini-1.5-flash",
@@ -23,7 +40,7 @@ MODEL_OPTIONS = [
     "gemini-2.0-flash-lite-preview-02-05",
     "gemini-2.0-pro-exp-02-05",
     "gemini-2.0-flash-thinking-exp-01-21",
-    "local-llama-cpp",
+    *get_local_llama_cpp_models(),
 ]
 
 MODEL_THINKING_LEVELS = {

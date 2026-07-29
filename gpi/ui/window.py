@@ -101,10 +101,13 @@ class PromptApp:
         key_name = self.api_key_name_var.get()
         api_key = get_api_key(key_name)
         if not api_key:
-            self.model_combo["values"] = ["local-llama-cpp"]
-            if self.model_name != "local-llama-cpp":
-                self.model_name = "local-llama-cpp"
-                self.model_var.set("local-llama-cpp")
+            from gpi.core.config import MODEL_OPTIONS
+            local_models = [m for m in MODEL_OPTIONS if m.startswith("local-llama-cpp")]
+            default_model = local_models[0] if local_models else "local-llama-cpp"
+            self.model_combo["values"] = local_models if local_models else ["local-llama-cpp"]
+            if not self.model_name.startswith("local-llama-cpp"):
+                self.model_name = default_model
+                self.model_var.set(default_model)
             return
 
         def fetch():
@@ -119,8 +122,11 @@ class PromptApp:
         threading.Thread(target=fetch, daemon=True).start()
 
     def update_model_list(self, models):
-        if "local-llama-cpp" not in models:
-            models.append("local-llama-cpp")
+        from gpi.core.config import MODEL_OPTIONS
+        local_models = [m for m in MODEL_OPTIONS if m.startswith("local-llama-cpp")]
+        for m in local_models:
+            if m not in models:
+                models.append(m)
         self.model_combo["values"] = models
         if self.model_name not in models:
             # Preferred order: flash-latest -> 2.0-flash -> 1.5-flash -> first available
@@ -452,7 +458,7 @@ class PromptApp:
     def on_model_change(self, event=None):
         new_model = self.model_var.get()
         
-        if new_model == "local-llama-cpp":
+        if new_model.startswith("local-llama-cpp"):
             current_values = list(self.api_key_combo["values"])
             if "llama.cpp" not in current_values:
                 current_values.append("llama.cpp")
@@ -470,7 +476,7 @@ class PromptApp:
         
         key_name = self.api_key_name_var.get()
         api_key = get_api_key(key_name)
-        if new_model != "local-llama-cpp" and not api_key:
+        if not new_model.startswith("local-llama-cpp") and not api_key:
             messagebox.showwarning("알림", "먼저 사용할 API 키를 설정하세요.")
             self.model_var.set(self.model_name)
             return
@@ -520,7 +526,7 @@ class PromptApp:
         key_name = self.api_key_name_var.get()
         api_key = get_api_key(key_name)
         
-        if self.model_var.get() != "local-llama-cpp" and not api_key:
+        if not self.model_var.get().startswith("local-llama-cpp") and not api_key:
             messagebox.showwarning("알림", "사용할 API 키를 선택하거나 설정하세요.")
             if hasattr(self, 'generation_queue'):
                 self.generation_queue.clear()
@@ -551,7 +557,7 @@ class PromptApp:
                 if not mime:
                     raise ValueError("지원하지 않거나 손상된 이미지입니다.")
                 
-                is_llama = (self.model_var.get() == "local-llama-cpp")
+                is_llama = self.model_var.get().startswith("local-llama-cpp")
                 prepared_data, _ = prepare_image_bytes(
                     data, mime, self.image_source["type"],
                     high_fidelity=self.high_fidelity_var.get(),
@@ -670,7 +676,7 @@ class PromptApp:
         self.refresh_history_list()
         self.status_var.set("생성 및 번역 완료")
         
-        if hasattr(self, 'generation_queue') and self.generation_queue and self.model_var.get() == "local-llama-cpp":
+        if hasattr(self, 'generation_queue') and self.generation_queue and self.model_var.get().startswith("local-llama-cpp"):
             self.root.after(100, self.process_next_in_queue)
 
     def on_copy_en(self):
@@ -746,7 +752,7 @@ class PromptApp:
             if hasattr(self, 'generation_queue'):
                 self.generation_queue.clear()
         else:
-            if hasattr(self, 'generation_queue') and self.generation_queue and self.model_var.get() == "local-llama-cpp":
+            if hasattr(self, 'generation_queue') and self.generation_queue and self.model_var.get().startswith("local-llama-cpp"):
                 self.root.after(1000, self.process_next_in_queue)
 
     def on_cancel(self):
@@ -977,7 +983,7 @@ class PromptApp:
             if not dropped_sources:
                 text = self._get_win_text(data_obj)
 
-            is_llama = (self.model_var.get() == "local-llama-cpp")
+            is_llama = self.model_var.get().startswith("local-llama-cpp")
             
             if is_llama:
                 if dropped_sources:
@@ -1057,7 +1063,7 @@ class PromptApp:
         
         def worker():
             try:
-                is_llama = (self.model_var.get() == "local-llama-cpp")
+                is_llama = self.model_var.get().startswith("local-llama-cpp")
                 data, mime = download_image_from_url(url, bypass_size_limit=is_llama)
                 self.root.after(0, lambda: self.set_image_source({
                     "type": "url_data", "value": data, "mime_type": mime, "url": url
@@ -1186,7 +1192,7 @@ class PromptApp:
 
         key_name = self.api_key_name_var.get()
         api_key = get_api_key(key_name)
-        if self.model_var.get() != "local-llama-cpp" and not api_key:
+        if not self.model_var.get().startswith("local-llama-cpp") and not api_key:
             messagebox.showwarning("알림", "사용할 API 키를 선택하거나 설정하세요.")
             return
 
@@ -1305,7 +1311,7 @@ class PromptApp:
         self.status_var.set("URL 다운로드 대기 중...")
         def worker():
             try:
-                is_llama = (self.model_var.get() == "local-llama-cpp")
+                is_llama = self.model_var.get().startswith("local-llama-cpp")
                 data, mime = download_image_from_url(url, bypass_size_limit=is_llama)
                 source = {"type": "url_data", "value": data, "mime_type": mime, "url": url}
                 self.root.after(0, lambda: self.add_to_generation_queue([source]))
