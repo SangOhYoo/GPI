@@ -544,7 +544,7 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
         '      "background": "(background elements)"\n'
         '    },\n'
         '    "composition_and_camera": {\n'
-        '      "camera_angle": "(camera angle and framing, e.g., POV, high angle, low angle, eye-level, over-the-shoulder, side view, close-up)",\n'
+        '      "camera_angle": "(camera angle and framing, e.g., POV, high angle, low angle, eye-level, over-the-shoulder, side view, close-up, extreme wide shot, minimalist wide shot, long shot)",\n'
         '      "lens": "(estimated lens and aperture, e.g., 35mm lens, f/1.8)",\n'
         '      "depth_of_field": "(depth of field description, e.g., shallow depth of field, soft blurry background)"\n'
         '    },\n'
@@ -748,8 +748,8 @@ def build_prompt_augmentation_instruction(keyword_text=None):
         "    \"atmospheric_effects\": \"string\"\n"
         "  },\n"
         "  \"photography_and_framing\": {\n"
-        "    \"shot_type\": \"string (e.g., close-up, medium shot, extreme close-up, wide shot, full-body shot)\",\n"
-        "    \"camera_angle\": \"string (e.g., POV, high angle, low angle, eye-level, over-the-shoulder, side view, overhead view)\",\n"
+        "    \"shot_type\": \"string (e.g., close-up, medium shot, extreme close-up, wide shot, extreme wide shot, long shot, minimalist wide shot, full-body shot)\",\n"
+        "    \"camera_angle\": \"string (e.g., POV, high angle, low angle, eye-level, over-the-shoulder, side view, overhead view, distant view)\",\n"
         "    \"lens_and_depth\": \"string (e.g., 35mm lens, shallow depth of field, sharp focus, cinematic bokeh)\",\n"
         "    \"composition_rule\": \"string (e.g., rule of thirds, leading lines, centered, dynamic diagonal, symmetrical)\"\n"
         "  },\n"
