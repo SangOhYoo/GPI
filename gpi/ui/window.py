@@ -101,8 +101,8 @@ class PromptApp:
         key_name = self.api_key_name_var.get()
         api_key = get_api_key(key_name)
         if not api_key:
-            from gpi.core.config import MODEL_OPTIONS
-            local_models = [m for m in MODEL_OPTIONS if m.startswith("local-llama-cpp")]
+            from gpi.core.config import get_local_llama_cpp_models
+            local_models = get_local_llama_cpp_models()
             default_model = local_models[0] if local_models else "local-llama-cpp"
             self.model_combo["values"] = local_models if local_models else ["local-llama-cpp"]
             if not self.model_name.startswith("local-llama-cpp"):
@@ -122,8 +122,8 @@ class PromptApp:
         threading.Thread(target=fetch, daemon=True).start()
 
     def update_model_list(self, models):
-        from gpi.core.config import MODEL_OPTIONS
-        local_models = [m for m in MODEL_OPTIONS if m.startswith("local-llama-cpp")]
+        from gpi.core.config import get_local_llama_cpp_models
+        local_models = get_local_llama_cpp_models()
         for m in local_models:
             if m not in models:
                 models.append(m)
@@ -155,8 +155,10 @@ class PromptApp:
         ttk.Label(top_panel, text="모델:", font=FONTS["bold"]).pack(side="left")
         self.model_var = tk.StringVar(value=self.model_name)
         self.model_combo = ttk.Combobox(top_panel, textvariable=self.model_var, values=MODEL_OPTIONS, state="readonly", width=40)
-        self.model_combo.pack(side="left", padx=SPACING["sm"])
+        self.model_combo.pack(side="left", padx=(0, 2))
         self.model_combo.bind("<<ComboboxSelected>>", self.on_model_change)
+        
+        ttk.Button(top_panel, text="🔄", width=3, command=self.refresh_models).pack(side="left", padx=(0, SPACING["sm"]))
         
         ttk.Label(top_panel, text="API 키:", font=FONTS["bold"]).pack(side="left", padx=(SPACING["md"], 0))
         self.api_key_name_var = tk.StringVar(value="Default")

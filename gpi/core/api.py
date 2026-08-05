@@ -28,7 +28,7 @@ def resolve_llama_api_key(api_key, model_name):
         from pathlib import Path
         presets_path = Path("c:/llama-cpp/presets.ini")
         if presets_path.exists():
-            parser = configparser.ConfigParser()
+            parser = configparser.ConfigParser(strict=False)
             parser.read(presets_path, encoding='utf-8')
             if parser.has_section(section) and parser.has_option(section, 'api-key'):
                 return parser.get(section, 'api-key')
