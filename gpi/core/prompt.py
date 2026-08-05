@@ -441,7 +441,12 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
             "Text & Layout Instruction must describe any text, UI elements, overlays, framing borders, layout arrangements, or typography in the scene."
             "\n\n[Physical Interaction & Environment Guidelines]\n"
             "- If the scene contains sexual or physical interaction, describe the physical positions and contact points concretely and explicitly (e.g., missionary, spooning, cowgirl, doggy style) instead of using abstract metaphors. Detail skin-to-skin contact, wetness, sweating, and body positioning.\n"
-            "- Enrich the background/lighting to match the atmosphere, specifying details like lighting sources (candles, neon, moonlight), dramatic shadows, and background props (disheveled bedding, rumpled sheets, scattered clothing, textures of satin, leather, or wood) to create a vivid and immersive scene."
+            "- Enrich the background/lighting to match the atmosphere, specifying details like lighting sources (candles, neon, moonlight), dramatic shadows, and background props (disheveled bedding, rumpled sheets, scattered clothing, textures of satin, leather, or wood) to create a vivid and immersive scene.\n\n"
+            "[Logical Consistency & Self-Correction Rules]\n"
+            "- No Clothing Contradictions: If the subject is naked/nude, the Outfit line must state so. Never describe them as wearing clothes and being naked simultaneously.\n"
+            "- Camera & Shot Consistency: Ensure shot_type and camera_angle are logically aligned. Do not mix 'close-up' (focusing on the face) and 'long shot/extreme wide shot' (showing the entire landscape) in the same description.\n"
+            "- Lighting Harmony: Ensure light sources logically match the scene illumination (e.g., do not describe a 'pitch-black dark room' but also 'bright direct sunlight' simultaneously without a window/open door).\n"
+            "- Spatial Logic: If multiple characters are present, their positions and actions must be physically possible (e.g., they cannot touch each other if they are positioned far apart)."
         )
     else:
         base = (
@@ -467,7 +472,12 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
             "Text & Layout Instruction must describe any text, UI elements, overlays, framing borders, layout arrangements, or typography in the scene."
             "\n\n[Physical Interaction & Environment Guidelines]\n"
             "- If the scene contains sexual or physical interaction, describe the physical positions and contact points concretely and explicitly (e.g., missionary, spooning, cowgirl, doggy style) instead of using abstract metaphors. Detail skin-to-skin contact, wetness, sweating, and body positioning.\n"
-            "- Enrich the background/lighting to match the atmosphere, specifying details like lighting sources (candles, neon, moonlight), dramatic shadows, and background props (disheveled bedding, rumpled sheets, scattered clothing, textures of satin, leather, or wood) to create a vivid and immersive scene."
+            "- Enrich the background/lighting to match the atmosphere, specifying details like lighting sources (candles, neon, moonlight), dramatic shadows, and background props (disheveled bedding, rumpled sheets, scattered clothing, textures of satin, leather, or wood) to create a vivid and immersive scene.\n\n"
+            "[Logical Consistency & Self-Correction Rules]\n"
+            "- No Clothing Contradictions: If the subject is naked/nude, the Outfit line must state so. Never describe them as wearing clothes and being naked simultaneously.\n"
+            "- Camera & Shot Consistency: Ensure shot_type and camera_angle are logically aligned. Do not mix 'close-up' (focusing on the face) and 'long shot/extreme wide shot' (showing the entire landscape) in the same description.\n"
+            "- Lighting Harmony: Ensure light sources logically match the scene illumination (e.g., do not describe a 'pitch-black dark room' but also 'bright direct sunlight' simultaneously without a window/open door).\n"
+            "- Spatial Logic: If multiple characters are present, their positions and actions must be physically possible (e.g., they cannot touch each other if they are positioned far apart)."
         )
     
     keyword_text = (keyword_text or '').strip()
@@ -711,6 +721,12 @@ def build_prompt_augmentation_instruction(keyword_text=None):
         "   - If naked, describe the body contact, skin-on-skin friction, sweat, and flushed details explicitly.\n"
         "2. Background & Atmospheric Enrichment:\n"
         "   - The environment MUST match the tone, mood, and intensity of the scene. Elaborate on ambient lighting (e.g., dim candlelight, casting dramatic shadows, neon glow), foreground/background props (e.g., rumpled sheets, discarded clothes on the floor, messy bed, atmospheric steam, moisture, or fog), and textures (e.g., satin fabric, soft leather, cold marble) to create a highly detailed, immersive backdrop.\n\n"
+        "[Logical Consistency & Self-Correction Rules]\n"
+        "Before outputting, you MUST perform a self-correction check to ensure there are no logical contradictions in your prompt and JSON:\n"
+        "1. No Clothing Contradictions: If a character is naked/nude, 'outfit' top/bottom/status fields must explicitly state 'naked/none'. Never describe them as wearing clothes and being naked simultaneously.\n"
+        "2. Camera & Shot Consistency: Ensure the 'shot_type' and 'camera_angle' are logically aligned. For example, do not mix 'close-up shot' (focusing on the face) with 'extreme wide shot' (showing the whole landscape) in the same description.\n"
+        "3. Lighting & Environment Harmony: Ensure the light source logically explains the illumination. (e.g., if it is a 'dimly lit room', do not describe 'bright direct sunlight beams' unless a window/light source is explicitly defined).\n"
+        "4. Spatial Consistency: Make sure characters' positions and interactions are physically possible. If two characters are touching or interacting, they must share compatible spatial positions.\n\n"
         "[JSON Schema]\n"
         "{\n"
         "  \"scene_metadata\": {\n"
