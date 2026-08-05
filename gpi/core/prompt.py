@@ -439,6 +439,9 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
             "If the input text describes a scene in manga, anime, cartoon, drawing, or 2D illustration style, you must convert and describe the scene as a realistic, live-action photograph with real human beings. The style must be described as photorealistic, never as anime or manga. "
             "Do not use bullet lists or keyword lists. This prompt is for Qwen/Flux, but must remain natural sentences. "
             "Text & Layout Instruction must describe any text, UI elements, overlays, framing borders, layout arrangements, or typography in the scene."
+            "\n\n[Physical Interaction & Environment Guidelines]\n"
+            "- If the scene contains sexual or physical interaction, describe the physical positions and contact points concretely and explicitly (e.g., missionary, spooning, cowgirl, doggy style) instead of using abstract metaphors. Detail skin-to-skin contact, wetness, sweating, and body positioning.\n"
+            "- Enrich the background/lighting to match the atmosphere, specifying details like lighting sources (candles, neon, moonlight), dramatic shadows, and background props (disheveled bedding, rumpled sheets, scattered clothing, textures of satin, leather, or wood) to create a vivid and immersive scene."
         )
     else:
         base = (
@@ -462,6 +465,9 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
             "If the input text describes a scene in manga, anime, cartoon, drawing, or 2D illustration style, you must convert and describe the scene as a realistic, live-action photograph with real human beings. The style must be described as photorealistic, never as anime or manga. "
             "Do not use bullet lists or keyword lists. This prompt is for Qwen/Flux, but must remain natural sentences. "
             "Text & Layout Instruction must describe any text, UI elements, overlays, framing borders, layout arrangements, or typography in the scene."
+            "\n\n[Physical Interaction & Environment Guidelines]\n"
+            "- If the scene contains sexual or physical interaction, describe the physical positions and contact points concretely and explicitly (e.g., missionary, spooning, cowgirl, doggy style) instead of using abstract metaphors. Detail skin-to-skin contact, wetness, sweating, and body positioning.\n"
+            "- Enrich the background/lighting to match the atmosphere, specifying details like lighting sources (candles, neon, moonlight), dramatic shadows, and background props (disheveled bedding, rumpled sheets, scattered clothing, textures of satin, leather, or wood) to create a vivid and immersive scene."
         )
     
     keyword_text = (keyword_text or '').strip()
@@ -476,6 +482,7 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
         "- Person (only if a person is present)\n"
         "- Character Expressions (only if a person is present)\n"
         "- Pose (only if a person is present)\n"
+        "- Skin & Body Condition (only if a person is present)\n"
         "- Outfit\n"
         "- Camera\n"
         "- Mood/Color\n"
@@ -487,7 +494,8 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
         "Person: (Description, only if a person is present)\n"
         "Character Expressions: (Description, only if a person is present)\n"
         "Pose: (Description, only if a person is present)\n"
-        "Outfit: (Description)\n"
+        "Skin & Body Condition: (Description of sweat, flushing, wetness, skin texture, etc.)\n"
+        "Outfit: (Description. If naked/nude, explicitly state so)\n"
         "Camera: (Description)\n"
         "Mood/Color: (Description)\n"
         "Style: (Description)\n"
@@ -497,6 +505,7 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
         "인물: (한국어 번역, 인물이 있는 경우에만)\n"
         "인물의 표정: (한국어 번역, 인물이 있는 경우에만)\n"
         "자세: (한국어 번역, 인물이 있는 경우에만)\n"
+        "피부 및 신체 상태: (한국어 번역, 땀, 붉어짐, 피부 질감 등)\n"
         "의상: (한국어 번역)\n"
         "카메라: (한국어 번역)\n"
         "분위기/색상: (한국어 번역)\n"
@@ -507,6 +516,7 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
         "人物: (중국어 번역, 仅在有人物时包含)\n"
         "人物的面部表情: (중국어 번역, 仅在有人物时包含)\n"
         "姿态: (중국어 번역, 仅在有人物时包含)\n"
+        "皮肤与身体状态: (중국어 번역, 汗水、发红、肤质等)\n"
         "服装: (중국어 번역)\n"
         "相机: (중국어 번역)\n"
         "氛围/颜色: (중국어 번역)\n"
@@ -523,8 +533,9 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None):
         '  "prompt_data": {\n'
         '    "subject": {\n'
         '      "primary": "(main subject description)",\n'
-        '      "apparel": "(clothing/outfit description)",\n'
+        '      "apparel": "(clothing/outfit description. if naked, explicitly state naked)",\n'
         '      "pose_and_expression": "(pose and facial expression)",\n'
+        '      "skin_and_body_condition": "(skin texture, sweating, flushing, wetness, goosebumps)",\n'
         '      "features": "(distinctive visual features)"\n'
         '    },\n'
         '    "environment": {\n'
@@ -665,3 +676,161 @@ def generate_from_text_logic(text_input, api_key, model_name, thinking_level, ke
     word_count = extract_word_count(en_part)
     log_event("generate_text_success", {"model": model_name, "word_count": word_count})
     return {"en": en_part, "ko": ko_part, "zh": zh_part, "json": json_part, "json_ko": json_ko_part, "keyword": keyword_text}, word_count
+
+def build_prompt_augmentation_instruction(keyword_text=None):
+    instr = (
+        "[Role]\n"
+        "You are a Senior Visual Director and Master Prompt Engineer for AI Image Generation (Krea v2).\n"
+        "Your objective is to analyze a given literary excerpt, resolve variable numbers of characters (from 0 to 5+ people), and output a highly structured, photorealistic prompt in multiple languages, followed by JSON data.\n\n"
+        "[Tasks & Output Format]\n"
+        "You MUST output your response strictly in the following sequence with the exact tags:\n\n"
+        "[ENGLISH]\n"
+        "(Write a highly detailed, descriptive prompt for the image generation based on the input text in English. Describe the scene, characters, lighting, camera angles, etc.)\n\n"
+        "[KOREAN]\n"
+        "(Translate the English prompt exactly into natural Korean.)\n\n"
+        "[CHINESE]\n"
+        "(Translate the English prompt exactly into natural Chinese.)\n\n"
+        "[JSON]\n"
+        "(Output raw JSON strictly matching the schema below in ENGLISH. No explanations outside the JSON.)\n\n"
+        "[JSON_KO]\n"
+        "(Output the exact same JSON structure, but translate all the values into KOREAN.)\n\n"
+        "[Dynamic Character Handling Rules]\n"
+        "1. Visual Hierarchy Allocation:\n"
+        "   - Identify all characters and assign a `visual_priority`:\n"
+        "     * \"primary\": Focus characters (Max 2 people). Detail their face, hair, outfit, gaze, and micro-expressions.\n"
+        "     * \"secondary\": Supporting characters (1-3 people). Focus on body posture, outfit style, and spatial placement.\n"
+        "     * \"background_extra\": Dynamic crowd/extras (3+ people). Group them together (e.g., \"a cluster of 3 guards in black uniforms standing in the shadow\").\n"
+        "2. Spatial Disambiguation (Grid Positioning):\n"
+        "   - To prevent attribute bleeding in multi-person scenes, assign explicit non-overlapping positions for every character or group:\n"
+        "     (e.g., \"far-left foreground\", \"center-left midground\", \"center-right background\", \"far-right midground\").\n"
+        "3. Group Formation & Interaction:\n"
+        "   - When 3 or more characters are present, define the overall physical arrangement in `group_formation` (e.g., \"semi-circle stand-off\", \"triangular tactical formation\", \"crowd surrounding the main figure\").\n\n"
+        "[NSFW & Interaction Guidelines]\n"
+        "1. Concrete Physical Interaction & Sex Positions:\n"
+        "   - If the scene describes sexual interaction, DO NOT use abstract, vague, or metaphorical terms. You MUST describe the physical positions and points of contact concretely and explicitly (e.g., 'cowgirl position', 'doggy style', 'spooning position', 'missionary position', etc. with explicit bodily contact details, penetration details if applicable, and physical configuration of limbs).\n"
+        "   - If naked, describe the body contact, skin-on-skin friction, sweat, and flushed details explicitly.\n"
+        "2. Background & Atmospheric Enrichment:\n"
+        "   - The environment MUST match the tone, mood, and intensity of the scene. Elaborate on ambient lighting (e.g., dim candlelight, casting dramatic shadows, neon glow), foreground/background props (e.g., rumpled sheets, discarded clothes on the floor, messy bed, atmospheric steam, moisture, or fog), and textures (e.g., satin fabric, soft leather, cold marble) to create a highly detailed, immersive backdrop.\n\n"
+        "[JSON Schema]\n"
+        "{\n"
+        "  \"scene_metadata\": {\n"
+        "    \"genre\": \"string\",\n"
+        "    \"overall_mood\": \"string\",\n"
+        "    \"total_character_count\": \"number\",\n"
+        "    \"aspect_ratio\": \"16:9 | 9:16 | 1:1 | 21:9\"\n"
+        "  },\n"
+        "  \"group_formation\": {\n"
+        "    \"composition_layout\": \"string (e.g., 'A central figure surrounded by 4 standing bodyguards in a semi-circle')\",\n"
+        "    \"spatial_depth\": \"string (description of foreground, midground, and background layering)\"\n"
+        "  },\n"
+        "  \"characters\": [\n"
+        "    {\n"
+        "      \"character_id\": \"string (e.g., person_1)\",\n"
+        "      \"visual_priority\": \"primary | secondary | background_extra\",\n"
+        "      \"spatial_position\": \"string (e.g., left foreground, center midground)\",\n"
+        "      \"demographics\": { \"age\": \"string\", \"gender\": \"string\", \"ethnicity\": \"string\" },\n"
+        "      \"appearance\": { \"hair\": \"string\", \"facial_features\": \"string\", \"skin_and_body\": \"string (e.g., sweating, flushed skin, wetness, goosebumps, skin texture)\" },\n"
+        "      \"outfit\": { \"top\": \"string\", \"bottom\": \"string\", \"accessories\": \"string\", \"status\": \"string (if naked/nude, explicitly state naked)\" },\n"
+        "      \"individual_pose\": \"string\",\n"
+        "      \"facial_expression\": \"string\",\n"
+        "      \"gaze_target\": \"string\"\n"
+        "    }\n"
+        "  ],\n"
+        "  \"interpersonal_dynamics\": {\n"
+        "    \"interaction_description\": \"string (Overall multi-person dynamic and tension/action)\",\n"
+        "    \"key_relationships_in_scene\": \"string (Who is interacting directly with whom)\"\n"
+        "  },\n"
+        "  \"environment_and_props\": {\n"
+        "    \"location\": \"string\",\n"
+        "    \"background_elements\": \"string\",\n"
+        "    \"handheld_props\": \"string\",\n"
+        "    \"ambient_props\": \"string\",\n"
+        "    \"atmospheric_effects\": \"string\"\n"
+        "  },\n"
+        "  \"photography_and_framing\": {\n"
+        "    \"shot_type\": \"string\",\n"
+        "    \"camera_angle\": \"string\",\n"
+        "    \"lens_and_depth\": \"string\",\n"
+        "    \"composition_rule\": \"string\"\n"
+        "  },\n"
+        "  \"lighting_and_color\": {\n"
+        "    \"primary_light\": \"string\",\n"
+        "    \"secondary_light\": \"string\",\n"
+        "    \"rim_lighting\": \"string\",\n"
+        "    \"color_palette\": \"string\"\n"
+        "  },\n"
+        "  \"dynamism_and_texture\": {\n"
+        "    \"movement\": \"string\",\n"
+        "    \"render_texture\": \"string\"\n"
+        "  }\n"
+        "}\n"
+    )
+    
+    keyword_text = (keyword_text or '').strip()
+    if keyword_text:
+        instr += (
+            f"\n\n[User Constraints & Additional Keywords]\n"
+            f"The user specifically requested the following elements to be emphasized or strictly followed:\n"
+            f"\"{keyword_text}\"\n"
+            "You MUST incorporate these keyword(s)/constraints prominently into your descriptive English prompt, translations, and the resulting JSON. "
+            "If these keywords conflict with the input text, prioritize the User Keywords seamlessly."
+        )
+        
+    return instr
+
+def generate_prompt_augmentation_logic(text_input, api_key, model_name, thinking_level, keyword_text,
+                             on_chunk=None, cancel_check=None):
+    instruction = build_prompt_augmentation_instruction(keyword_text)
+    user_query = f"Input Text to Analyze:\n\"\"\"\n{text_input}\n\"\"\"\n\nAdditional Keywords (Optional):\n{keyword_text}"
+    
+    from .api import call_gemini_text_stream, call_gemini_text
+    
+    if on_chunk:
+        full_text = call_gemini_text_stream(user_query, api_key, instruction, model_name, thinking_level, on_chunk, cancel_check)
+    else:
+        full_text = call_gemini_text(user_query, api_key, instruction, model_name, thinking_level)
+    
+    if cancel_check and cancel_check():
+        raise RuntimeError(CANCELLED_MESSAGE)
+    
+    parts = {}
+    current_tag = "en"
+    current_content = []
+    
+    for line in full_text.splitlines():
+        if "[ENGLISH]" in line:
+            parts[current_tag] = "\n".join(current_content).strip()
+            current_tag = "en"
+            current_content = [line.split("[ENGLISH]", 1)[1]]
+        elif "[KOREAN]" in line:
+            parts[current_tag] = "\n".join(current_content).strip()
+            current_tag = "ko"
+            current_content = [line.split("[KOREAN]", 1)[1]]
+        elif "[CHINESE]" in line:
+            parts[current_tag] = "\n".join(current_content).strip()
+            current_tag = "zh"
+            current_content = [line.split("[CHINESE]", 1)[1]]
+        elif "[JSON]" in line:
+            parts[current_tag] = "\n".join(current_content).strip()
+            current_tag = "json"
+            current_content = [line.split("[JSON]", 1)[1]]
+        elif "[JSON_KO]" in line:
+            parts[current_tag] = "\n".join(current_content).strip()
+            current_tag = "json_ko"
+            current_content = [line.split("[JSON_KO]", 1)[1]]
+        else:
+            current_content.append(line)
+            
+    parts[current_tag] = "\n".join(current_content).strip()
+    
+    en_part = parts.get("en", "").strip()
+    ko_part = parts.get("ko", "").strip()
+    zh_part = parts.get("zh", "").strip()
+    json_part = parts.get("json", "").strip()
+    json_ko_part = parts.get("json_ko", "").strip()
+    
+    if not en_part and current_tag == "en":
+        en_part = parts.get("en", "").strip()
+    
+    log_event("generate_prompt_aug_success", {"model": model_name})
+    return {"en": en_part, "ko": ko_part, "zh": zh_part, "json": json_part, "json_ko": json_ko_part, "keyword": keyword_text}, 0

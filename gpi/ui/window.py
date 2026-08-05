@@ -237,6 +237,27 @@ class PromptApp:
         ttk.Button(text_btn_frame, text="텍스트 파일 불러오기", command=self.on_pick_text_file).pack(side="left")
         ttk.Button(text_btn_frame, text="내용 비우기", command=lambda: self.text_input.delete("1.0", "end")).pack(side="right")
 
+        # Tab 3: Prompt Augmentation [NEW]
+        self.prompt_tab = ttk.Frame(self.input_notebook)
+        self.input_notebook.add(self.prompt_tab, text="프롬프트 증강")
+        
+        ttk.Label(self.prompt_tab, text="소설 구절 또는 묘사 입력:", font=FONTS["bold"]).pack(anchor="w", pady=(0, SPACING["xs"]))
+        
+        prompt_input_container = ttk.Frame(self.prompt_tab)
+        prompt_input_container.pack(fill="both", expand=True)
+        
+        self.prompt_input = tk.Text(prompt_input_container, wrap="word", height=12, font=FONTS["main"], bd=1)
+        self.prompt_input.pack(side="left", fill="both", expand=True)
+        
+        prompt_scroll = ttk.Scrollbar(prompt_input_container, orient="vertical", command=self.prompt_input.yview)
+        prompt_scroll.pack(side="right", fill="y")
+        self.prompt_input.config(yscrollcommand=prompt_scroll.set)
+        
+        prompt_btn_frame = ttk.Frame(self.prompt_tab)
+        prompt_btn_frame.pack(fill="x", pady=SPACING["sm"])
+        ttk.Button(prompt_btn_frame, text="텍스트 파일 불러오기", command=self.on_pick_prompt_file).pack(side="left")
+        ttk.Button(prompt_btn_frame, text="내용 비우기", command=lambda: self.prompt_input.delete("1.0", "end")).pack(side="right")
+
         # Bottom Options (Shared or common area)
         bottom_options = ttk.Frame(left_side)
         bottom_options.pack(fill="x", side="bottom")
@@ -1144,9 +1165,10 @@ class PromptApp:
             
         try:
             curr_idx = self.input_notebook.index("current")
-            if self.history_notebook.index("current") != curr_idx:
+            history_idx = curr_idx if curr_idx < len(self.history_notebook.tabs()) else 1
+            if self.history_notebook.index("current") != history_idx:
                 # Use after_idle to avoid disrupting the current event flow
-                self.root.after_idle(lambda: self.history_notebook.select(curr_idx))
+                self.root.after_idle(lambda: self.history_notebook.select(history_idx))
         except Exception:
             pass
 
@@ -1159,7 +1181,10 @@ class PromptApp:
             
         try:
             curr_idx = self.history_notebook.index("current")
-            if self.input_notebook.index("current") != curr_idx:
+            input_idx = self.input_notebook.index("current")
+            if curr_idx == 1 and input_idx >= 1:
+                return
+            if input_idx != curr_idx:
                 self.root.after_idle(lambda: self.input_notebook.select(curr_idx))
         except Exception:
             pass
@@ -1169,8 +1194,132 @@ class PromptApp:
         active_tab = self.input_notebook.index("current")
         if active_tab == 0: # Image Tab
             self.on_generate()
-        else: # Text Tab
+        elif active_tab == 1: # Text Tab
             self.on_generate_from_text()
+        else: # Prompt Aug Tab
+            self.on_generate_prompt_aug()
+
+    def on_pick_prompt_file(self):
+        path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt;*.md;*.log")])
+        if path:
+            try:
+                content = Path(path).read_text(encoding="utf-8")
+                self.prompt_input.delete("1.0", "end")
+                self.prompt_input.insert("1.0", content)
+                self.status_var.set(f"텍스트 파일 로드 완료: {Path(path).name}")
+            except Exception as e:
+                messagebox.showerror("오류", f"파일을 읽을 수 없습니다: {e}")
+
+    def on_generate_prompt_aug(self):
+        if self.generation_in_progress:
+            return
+            
+        text_content = self.prompt_input.get("1.0", "end-1c").strip()
+        if not text_content:
+            messagebox.showwarning("알림", "분석할 텍스트를 입력하세요.")
+            return
+
+        key_name = self.api_key_name_var.get()
+        api_key = get_api_key(key_name)
+        if not self.model_var.get().startswith("local-llama-cpp") and not api_key:
+            messagebox.showwarning("알림", "사용할 API 키를 선택하거나 설정하세요.")
+            return
+
+        self.set_busy(True)
+        self.output_text.delete("1.0", "end")
+        self.translation_text.delete("1.0", "end")
+        self.translation_zh_text.delete("1.0", "end")
+        self.json_output_text.delete("1.0", "end")
+        self.json_ko_output_text.delete("1.0", "end")
+
+        def worker():
+            try:
+                from ..core.prompt import generate_prompt_augmentation_logic
+                
+                # Unified streaming handler (similar to image)
+                current_tag = "en"
+                
+                def chunk_handler(chunk):
+                    nonlocal current_tag
+                    
+                    while chunk:
+                        tags = {"[ENGLISH]": "en", "[KOREAN]": "ko", "[CHINESE]": "zh", "[JSON]": "json", "[JSON_KO]": "json_ko"}
+                        first_tag_pos = -1
+                        first_tag_str = ""
+                        
+                        for t in tags:
+                            pos = chunk.find(t)
+                            if pos != -1 and (first_tag_pos == -1 or pos < first_tag_pos):
+                                first_tag_pos = pos
+                                first_tag_str = t
+                                
+                        if first_tag_pos == -1:
+                            if current_tag == "en":
+                                self.root.after(0, lambda c=chunk: self.output_text.insert("end", c))
+                                self.root.after(0, lambda: self.output_text.see("end"))
+                            elif current_tag == "ko":
+                                self.root.after(0, lambda c=chunk: self.translation_text.insert("end", c))
+                                self.root.after(0, lambda: self.translation_text.see("end"))
+                            elif current_tag == "zh":
+                                self.root.after(0, lambda c=chunk: self.translation_zh_text.insert("end", c))
+                                self.root.after(0, lambda: self.translation_zh_text.see("end"))
+                            elif current_tag == "json":
+                                self.root.after(0, lambda c=chunk: self.json_output_text.insert("end", c))
+                                self.root.after(0, lambda: self.json_output_text.see("end"))
+                            elif current_tag == "json_ko":
+                                self.root.after(0, lambda c=chunk: self.json_ko_output_text.insert("end", c))
+                                self.root.after(0, lambda: self.json_ko_output_text.see("end"))
+                            break
+                            
+                        pre_text = chunk[:first_tag_pos]
+                        if pre_text:
+                            if current_tag == "en":
+                                self.root.after(0, lambda p=pre_text: self.output_text.insert("end", p))
+                            elif current_tag == "ko":
+                                self.root.after(0, lambda p=pre_text: self.translation_text.insert("end", p))
+                            elif current_tag == "zh":
+                                self.root.after(0, lambda p=pre_text: self.translation_zh_text.insert("end", p))
+                            elif current_tag == "json":
+                                self.root.after(0, lambda p=pre_text: self.json_output_text.insert("end", p))
+                            elif current_tag == "json_ko":
+                                self.root.after(0, lambda p=pre_text: self.json_ko_output_text.insert("end", p))
+                                
+                        current_tag = tags[first_tag_str]
+                        if current_tag == "en":
+                            self.root.after(0, lambda: self.output_text.delete("1.0", "end"))
+                        elif current_tag == "ko":
+                            self.root.after(0, lambda: self.translation_text.delete("1.0", "end"))
+                        elif current_tag == "zh":
+                            self.root.after(0, lambda: self.translation_zh_text.delete("1.0", "end"))
+                        elif current_tag == "json":
+                            self.root.after(0, lambda: self.json_output_text.delete("1.0", "end"))
+                        elif current_tag == "json_ko":
+                            self.root.after(0, lambda: self.json_ko_output_text.delete("1.0", "end"))
+                            
+                        chunk = chunk[first_tag_pos + len(first_tag_str):]
+                
+                model_name = self.model_var.get()
+                thinking_level = self.thinking_level_var.get() if hasattr(self, "thinking_level_var") else None
+                result, count = generate_prompt_augmentation_logic(
+                    text_input=text_content,
+                    api_key=api_key,
+                    model_name=model_name,
+                    thinking_level=thinking_level,
+                    keyword_text=self.keyword_var.get().strip(),
+                    on_chunk=chunk_handler,
+                    cancel_check=lambda: self.cancel_requested
+                )
+                
+                result["input_text"] = text_content
+                text_source = {"type": "text_input", "value": "증강: " + text_content[:40] + "...", "name": "Prompt Aug"}
+                self.image_source = text_source
+                
+                self.root.after(0, lambda: self.on_success(result, count))
+            except Exception as e:
+                self.root.after(0, lambda err=str(e): self.on_error(err))
+
+        threading.Thread(target=worker, daemon=True).start()
+
 
     def on_pick_text_file(self):
         path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt;*.md;*.log")])
