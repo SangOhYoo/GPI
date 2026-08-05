@@ -643,20 +643,60 @@ def generate_from_text_logic(text_input, api_key, model_name, thinking_level, ke
         j_en = ""
         j_ko = ""
         before = text
-        if "[JSON]" in text:
+        
+        if "[JSON_KO]" in text:
+            sp = text.split("[JSON_KO]", 1)
+            remainder_before_ko = sp[0].strip()
+            j_ko = sp[1].strip()
+            if "{" in j_ko:
+                j_ko = j_ko[j_ko.find("{"):j_ko.rfind("}")+1]
+                
+            if "[JSON]" in remainder_before_ko:
+                sp2 = remainder_before_ko.split("[JSON]", 1)
+                before = sp2[0].strip()
+                j_en = sp2[1].strip()
+                if "{" in j_en:
+                    j_en = j_en[j_en.find("{"):j_en.rfind("}")+1]
+            else:
+                if "{" in remainder_before_ko:
+                    f_brace = remainder_before_ko.find("{")
+                    l_brace = remainder_before_ko.rfind("}")
+                    before = remainder_before_ko[:f_brace].strip()
+                    j_en = remainder_before_ko[f_brace:l_brace+1].strip()
+                else:
+                    before = remainder_before_ko
+        elif "[JSON]" in text:
             sp = text.split("[JSON]", 1)
             before = sp[0].strip()
-            j_remainder = sp[1]
-            if "[JSON_KO]" in j_remainder:
-                sp2 = j_remainder.split("[JSON_KO]", 1)
-                j_en = sp2[0].strip()
-                j_ko = sp2[1].strip()
+            j_en = sp[1].strip()
+            if "{" in j_en:
+                j_en = j_en[j_en.find("{"):j_en.rfind("}")+1]
+        else:
+            import re
+            boundary = re.search(r'\}\s*[\r\n]+\s*\{', text)
+            if boundary:
+                split_pos = boundary.start() + 1
+                first_part = text[:split_pos].strip()
+                second_part = text[split_pos:].strip()
+                
+                if "{" in first_part:
+                    f_brace = first_part.find("{")
+                    l_brace = first_part.rfind("}")
+                    before = first_part[:f_brace].strip()
+                    j_en = first_part[f_brace:l_brace+1].strip()
+                else:
+                    before = first_part
+                
+                if "{" in second_part:
+                    f_brace = second_part.find("{")
+                    l_brace = second_part.rfind("}")
+                    j_ko = second_part[f_brace:l_brace+1].strip()
             else:
-                j_en = j_remainder.strip()
-        elif "[JSON_KO]" in text:
-            sp = text.split("[JSON_KO]", 1)
-            before = sp[0].strip()
-            j_ko = sp[1].strip()
+                if "{" in text:
+                    f_brace = text.find("{")
+                    l_brace = text.rfind("}")
+                    before = text[:f_brace].strip()
+                    j_en = text[f_brace:l_brace+1].strip()
         return before, j_en, j_ko
     
     if "[ENGLISH]" in full_text and "[KOREAN]" in full_text:
@@ -809,44 +849,94 @@ def generate_prompt_augmentation_logic(text_input, api_key, model_name, thinking
     if cancel_check and cancel_check():
         raise RuntimeError(CANCELLED_MESSAGE)
     
-    parts = {}
-    current_tag = "en"
-    current_content = []
+    en_part = ""
+    ko_part = ""
+    zh_part = ""
+    json_part = ""
+    json_ko_part = ""
     
-    for line in full_text.splitlines():
-        if "[ENGLISH]" in line:
-            parts[current_tag] = "\n".join(current_content).strip()
-            current_tag = "en"
-            current_content = [line.split("[ENGLISH]", 1)[1]]
-        elif "[KOREAN]" in line:
-            parts[current_tag] = "\n".join(current_content).strip()
-            current_tag = "ko"
-            current_content = [line.split("[KOREAN]", 1)[1]]
-        elif "[CHINESE]" in line:
-            parts[current_tag] = "\n".join(current_content).strip()
-            current_tag = "zh"
-            current_content = [line.split("[CHINESE]", 1)[1]]
-        elif "[JSON]" in line:
-            parts[current_tag] = "\n".join(current_content).strip()
-            current_tag = "json"
-            current_content = [line.split("[JSON]", 1)[1]]
-        elif "[JSON_KO]" in line:
-            parts[current_tag] = "\n".join(current_content).strip()
-            current_tag = "json_ko"
-            current_content = [line.split("[JSON_KO]", 1)[1]]
+    # Helper to split json and json_ko from a remainder string
+    def _split_json_parts(text):
+        j_en = ""
+        j_ko = ""
+        before = text
+        
+        if "[JSON_KO]" in text:
+            sp = text.split("[JSON_KO]", 1)
+            remainder_before_ko = sp[0].strip()
+            j_ko = sp[1].strip()
+            if "{" in j_ko:
+                j_ko = j_ko[j_ko.find("{"):j_ko.rfind("}")+1]
+                
+            if "[JSON]" in remainder_before_ko:
+                sp2 = remainder_before_ko.split("[JSON]", 1)
+                before = sp2[0].strip()
+                j_en = sp2[1].strip()
+                if "{" in j_en:
+                    j_en = j_en[j_en.find("{"):j_en.rfind("}")+1]
+            else:
+                if "{" in remainder_before_ko:
+                    f_brace = remainder_before_ko.find("{")
+                    l_brace = remainder_before_ko.rfind("}")
+                    before = remainder_before_ko[:f_brace].strip()
+                    j_en = remainder_before_ko[f_brace:l_brace+1].strip()
+                else:
+                    before = remainder_before_ko
+        elif "[JSON]" in text:
+            sp = text.split("[JSON]", 1)
+            before = sp[0].strip()
+            j_en = sp[1].strip()
+            if "{" in j_en:
+                j_en = j_en[j_en.find("{"):j_en.rfind("}")+1]
         else:
-            current_content.append(line)
+            import re
+            boundary = re.search(r'\}\s*[\r\n]+\s*\{', text)
+            if boundary:
+                split_pos = boundary.start() + 1
+                first_part = text[:split_pos].strip()
+                second_part = text[split_pos:].strip()
+                
+                if "{" in first_part:
+                    f_brace = first_part.find("{")
+                    l_brace = first_part.rfind("}")
+                    before = first_part[:f_brace].strip()
+                    j_en = first_part[f_brace:l_brace+1].strip()
+                else:
+                    before = first_part
+                
+                if "{" in second_part:
+                    f_brace = second_part.find("{")
+                    l_brace = second_part.rfind("}")
+                    j_ko = second_part[f_brace:l_brace+1].strip()
+            else:
+                if "{" in text:
+                    f_brace = text.find("{")
+                    l_brace = text.rfind("}")
+                    before = text[:f_brace].strip()
+                    j_en = text[f_brace:l_brace+1].strip()
+        return before, j_en, j_ko
+
+    if "[ENGLISH]" in full_text and "[KOREAN]" in full_text:
+        parts = full_text.rsplit("[ENGLISH]", 1)
+        actual_output = parts[-1]
+        
+        if "[KOREAN]" in actual_output:
+            ko_parts = actual_output.split("[KOREAN]", 1)
+            en_part = ko_parts[0].strip()
             
-    parts[current_tag] = "\n".join(current_content).strip()
-    
-    en_part = parts.get("en", "").strip()
-    ko_part = parts.get("ko", "").strip()
-    zh_part = parts.get("zh", "").strip()
-    json_part = parts.get("json", "").strip()
-    json_ko_part = parts.get("json_ko", "").strip()
-    
-    if not en_part and current_tag == "en":
-        en_part = parts.get("en", "").strip()
+            remainder = ko_parts[1]
+            if "[CHINESE]" in remainder:
+                zh_parts = remainder.split("[CHINESE]", 1)
+                ko_part = zh_parts[0].strip()
+                zh_part, json_part, json_ko_part = _split_json_parts(zh_parts[1])
+            else:
+                ko_part, json_part, json_ko_part = _split_json_parts(remainder)
+        else:
+            en_part = actual_output.replace("[KOREAN]", "").replace("[CHINESE]", "").replace("[JSON]", "").replace("[JSON_KO]", "").strip()
+    else:
+        en_part, json_part, json_ko_part = _split_json_parts(full_text)
+        if not en_part and not json_part:
+            en_part = full_text
     
     log_event("generate_prompt_aug_success", {"model": model_name})
     return {"en": en_part, "ko": ko_part, "zh": zh_part, "json": json_part, "json_ko": json_ko_part, "keyword": keyword_text}, 0
