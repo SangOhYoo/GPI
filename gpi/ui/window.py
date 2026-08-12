@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .styles import COLORS, SPACING, FONTS
 from .dialogs import ApiKeyDialog
+from .character_dialog import CharacterManagerDialog
 from .dnd import (
     setup_dnd, get_image_from_clipboard, WIN_DND_AVAILABLE,
     CF_FILEDESCRIPTORW, CF_FILEDESCRIPTORA, CF_FILECONTENTS,
@@ -143,6 +144,38 @@ class PromptApp:
         else:
             self.model_var.set(self.model_name)
 
+    def open_character_manager(self):
+        CharacterManagerDialog(self)
+        
+    def refresh_characters_ui(self):
+        from gpi.core.character import load_characters
+        chars = load_characters()
+        
+        if not hasattr(self, "char_inner_frame"):
+            return
+            
+        for widget in self.char_inner_frame.winfo_children():
+            widget.destroy()
+            
+        self.character_vars = {}
+        
+        if not chars:
+            ttk.Label(self.char_inner_frame, text="등록된 캐릭터가 없습니다. '캐릭터 관리'에서 추가하세요.", foreground="gray").pack(side="left")
+            return
+            
+        for c in chars:
+            c_id = c.get("id")
+            c_name = c.get("name", "Unknown")
+            var = tk.BooleanVar(value=False)
+            self.character_vars[c_id] = var
+            cb = ttk.Checkbutton(self.char_inner_frame, text=c_name, variable=var)
+            cb.pack(side="left", padx=5)
+
+    def get_active_character_ids(self):
+        if not hasattr(self, "character_vars"):
+            return []
+        return [c_id for c_id, var in self.character_vars.items() if var.get()]
+
     def setup_ui(self):
         main_container = ttk.Frame(self.root, style="App.TFrame", padding=SPACING["lg"])
         main_container.pack(fill="both", expand=True)
@@ -166,6 +199,7 @@ class PromptApp:
         self.api_key_combo.pack(side="left", padx=SPACING["sm"])
         self.api_key_combo.bind("<<ComboboxSelected>>", self.on_api_key_change)
         
+        ttk.Button(top_panel, text="캐릭터 관리", command=self.open_character_manager).pack(side="right", padx=(0, SPACING["sm"]))
         ttk.Button(top_panel, text="API 키 관리", command=lambda: ApiKeyDialog(self)).pack(side="right")
         
         self.refresh_api_keys()
@@ -258,26 +292,76 @@ class PromptApp:
         ttk.Button(prompt_btn_frame, text="텍스트 파일 불러오기", command=self.on_pick_prompt_file).pack(side="left")
         ttk.Button(prompt_btn_frame, text="내용 비우기", command=lambda: self.prompt_input.delete("1.0", "end")).pack(side="right")
 
+
+        # Tab 4: Prompt Remix [NEW]
+        self.remix_tab = ttk.Frame(self.input_notebook)
+        self.input_notebook.add(self.remix_tab, text="프롬프트 조합기")
+        
+        ttk.Label(self.remix_tab, text="히스토리 조각 조합:", font=FONTS["bold"]).pack(anchor="w", pady=(0, SPACING["xs"]))
+        
+        remix_container = ttk.Frame(self.remix_tab)
+        remix_container.pack(fill="both", expand=True)
+        
+        # We will dynamically populate comboboxes for attributes
+        self.remix_combos = {}
+        self.remix_attributes = ["Background_Lighting", "Person", "Character_Expressions", "Pose", "Outfit", "Camera", "Mood_Color", "Style"]
+        
+        remix_canvas = tk.Canvas(remix_container, highlightthickness=0)
+        remix_scrollbar = ttk.Scrollbar(remix_container, orient="vertical", command=remix_canvas.yview)
+        self.remix_scrollable_frame = ttk.Frame(remix_canvas)
+        
+        self.remix_scrollable_frame.bind(
+            "<Configure>",
+            lambda e: remix_canvas.configure(
+                scrollregion=remix_canvas.bbox("all")
+            )
+        )
+        
+        remix_canvas.create_window((0, 0), window=self.remix_scrollable_frame, anchor="nw")
+        remix_canvas.configure(yscrollcommand=remix_scrollbar.set)
+        
+        remix_canvas.pack(side="left", fill="both", expand=True)
+        remix_scrollbar.pack(side="right", fill="y")
+        
+        for attr in self.remix_attributes:
+            lbl = ttk.Label(self.remix_scrollable_frame, text=attr.replace("_", "/"))
+            lbl.pack(anchor="w", pady=(SPACING["xs"], 0))
+            cb = ttk.Combobox(self.remix_scrollable_frame, values=[], state="normal")
+            cb.pack(fill="x", pady=(0, SPACING["sm"]))
+            self.remix_combos[attr] = cb
+            
+        remix_btn_frame = ttk.Frame(self.remix_tab)
+        remix_btn_frame.pack(fill="x", pady=SPACING["sm"])
+        ttk.Button(remix_btn_frame, text="내용 비우기", command=self.clear_remix).pack(side="right")
+        ttk.Button(remix_btn_frame, text="목록 새로고침", command=self.refresh_remix_options).pack(side="left")
+
         # Bottom Options (Shared or common area)
         bottom_options = ttk.Frame(left_side)
         bottom_options.pack(fill="x", side="bottom")
 
+        # Character Selection Frame
+        self.char_frame = ttk.LabelFrame(bottom_options, text="등장 인물 (캐릭터 프로필 적용)", style="Card.TLabelframe")
+        self.char_frame.pack(fill="x", pady=(0, SPACING["sm"]))
+        self.char_inner_frame = ttk.Frame(self.char_frame)
+        self.char_inner_frame.pack(fill="x", padx=SPACING["sm"], pady=SPACING["sm"])
+        self.character_vars = {}
+        self.refresh_characters_ui()
+        self.refresh_remix_options()
+
         # Options
         opt_frame = ttk.LabelFrame(bottom_options, text="추가 옵션", style="Card.TLabelframe")
-        opt_frame.pack(fill="x", pady=SPACING["md"])
+        opt_frame.pack(fill="x", pady=(0, SPACING["md"]))
         
         ttk.Label(opt_frame, text="키워드 (선택):").pack(anchor="w", padx=SPACING["sm"])
-        self.keyword_var = tk.StringVar(value="고화질 4K 극사실주의 사진, 동양인,")
-        # Use plain tk.Entry for better IME compatibility on Windows with custom themes
-        self.keyword_entry = tk.Entry(
-            opt_frame, textvariable=self.keyword_var, font=FONTS["main"],
+        self.keyword_text = tk.Text(
+            opt_frame, font=FONTS["main"], height=4,
             bg=COLORS["surface_alt"], fg=COLORS["text_primary"],
             insertbackground=COLORS["text_primary"], relief="flat",
             highlightthickness=1, highlightbackground=COLORS["surface_alt_strong"],
             highlightcolor=COLORS["accent"]
         )
-        self.keyword_entry.pack(fill="x", padx=SPACING["sm"], pady=(0, SPACING["sm"]), ipady=4)
-        self.keyword_var.set("고화질 4K 극사실주의 사진, 동양인,")
+        self.keyword_text.pack(fill="x", padx=SPACING["sm"], pady=(0, SPACING["sm"]))
+        self.keyword_text.insert("1.0", "고화질 4K 극사실주의 사진, 동양인,")
         
         # High Fidelity Checkbox (Mainly for image analysis)
         self.hf_check = ttk.Checkbutton(
@@ -587,14 +671,16 @@ class PromptApp:
                     bypass_size_limit=is_llama
                 )
                 
-                # Unified streaming handler for three languages
-                current_tag = "en"
-                
                 def chunk_handler(chunk):
+                    self.root.after(0, lambda c=chunk: self.output_text.insert("end", c))
+                    self.root.after(0, lambda: self.output_text.see("end"))
+
+                current_tag = None
+                def pass2_chunk_handler(chunk):
                     nonlocal current_tag
-                    
                     while chunk:
-                        tags = {"[ENGLISH]": "en", "[KOREAN]": "ko", "[CHINESE]": "zh", "[JSON]": "json", "[JSON_KO]": "json_ko"}
+                        # Order matters! [JSON_KO] must be before [JSON] to prevent substring matching
+                        tags = {"[ENGLISH]": "en", "[KOREAN]": "ko", "[CHINESE]": "zh", "[JSON_KO]": "json_ko", "[JSON]": "json"}
                         first_tag_pos = -1
                         first_tag_str = ""
                         
@@ -636,7 +722,9 @@ class PromptApp:
                                 self.root.after(0, lambda p=pre_text: self.json_ko_output_text.insert("end", p))
                                 
                         current_tag = tags[first_tag_str]
-                        if current_tag == "ko":
+                        if current_tag == "en":
+                            self.root.after(0, lambda: self.output_text.delete("1.0", "end"))
+                        elif current_tag == "ko":
                             self.root.after(0, lambda: self.translation_text.delete("1.0", "end"))
                         elif current_tag == "zh":
                             self.root.after(0, lambda: self.translation_zh_text.delete("1.0", "end"))
@@ -650,11 +738,12 @@ class PromptApp:
                 result, count = generate_prompt_logic(
                     prepared_data, mime, api_key, 
                     self.model_name, self.model_thinking_level, 
-                    self.keyword_var.get(),
+                    self.keyword_text.get("1.0", "end-1c"),
                     min_words=self.min_words_var.get(),
                     max_words=self.max_words_var.get(),
                     high_fidelity=self.high_fidelity_var.get(),
                     on_chunk=chunk_handler,
+                    on_pass2_chunk=pass2_chunk_handler,
                     cancel_check=lambda: self.cancel_requested
                 )
                 
@@ -814,18 +903,49 @@ class PromptApp:
         
         # Restore keyword if present
         keyword = entry.get("keyword", "")
-        self.keyword_var.set(keyword)
+        self.keyword_text.delete("1.0", "end")
+        self.keyword_text.insert("1.0", keyword)
         
         # Switch input tab
         if list_type == "image":
             self.input_notebook.select(0)
         else:
-            self.input_notebook.select(1)
-            # Restore original text
+            # Check if this was a Prompt Augment entry
+            is_prompt_aug = False
             orig_text = entry.get("input_text", "")
-            if orig_text:
-                self.text_input.delete("1.0", "end")
-                self.text_input.insert("1.0", orig_text)
+            if entry.get("en") and not entry.get("image_path"):
+                # If there's input_text, check if it was generated in Prompt Aug or Text Analysis.
+                # In on_generate_prompt_aug, we set text_source value start with "증강: "
+                # and when saving we might have distinct characteristics or we can just check if we have the prompt_input tab content.
+                # Let's save a flag or check if the prompt_input has been used, or better:
+                # We can store a metadata or type check. Actually, checking if "증강: " or similar prefix was in name/type,
+                # but since we only saved it in result["input_text"], we can check if it starts with a certain character,
+                # or we can look at the active tab when it was generated. But since history is loaded from file,
+                # we can check if the entry has specific fields or check where the text came from.
+                # A robust way is to save an identifier. But since it's already saved, let's check:
+                # If the entry has "json_ko" keys specific to prompt augmentation or if we check if the entry's input_text is meant for prompt_input.
+                # We can see in gpi_events.jsonl or history.txt.
+                # Let's check: in history list refresh, we put "텍스트" for both.
+                # We can check which notebook tab was active, or detect based on entry content.
+                # Let's check if the entry has 'json' or 'json_ko' that matches the Prompt Aug schema (e.g. "characters" key).
+                import json
+                try:
+                    js_data = json.loads(entry.get("json", "{}"))
+                    if isinstance(js_data, dict) and ("scene_metadata" in js_data or "characters" in js_data):
+                        is_prompt_aug = True
+                except Exception:
+                    pass
+
+            if is_prompt_aug:
+                self.input_notebook.select(2) # Prompt Aug Tab is at index 2
+                if orig_text:
+                    self.prompt_input.delete("1.0", "end")
+                    self.prompt_input.insert("1.0", orig_text)
+            else:
+                self.input_notebook.select(1) # Text Tab is at index 1
+                if orig_text:
+                    self.text_input.delete("1.0", "end")
+                    self.text_input.insert("1.0", orig_text)
 
         # Restore image if path exists
         image_rel_path = entry.get("image_path")
@@ -1196,8 +1316,10 @@ class PromptApp:
             self.on_generate()
         elif active_tab == 1: # Text Tab
             self.on_generate_from_text()
-        else: # Prompt Aug Tab
+        elif active_tab == 2: # Prompt Aug Tab
             self.on_generate_prompt_aug()
+        elif active_tab == 3: # Prompt Remix Tab
+            self.on_generate_remix()
 
     def on_pick_prompt_file(self):
         path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt;*.md;*.log")])
@@ -1237,13 +1359,16 @@ class PromptApp:
                 from ..core.prompt import generate_prompt_augmentation_logic
                 
                 # Unified streaming handler (similar to image)
-                current_tag = "en"
-                
                 def chunk_handler(chunk):
+                    self.root.after(0, lambda c=chunk: self.output_text.insert("end", c))
+                    self.root.after(0, lambda: self.output_text.see("end"))
+
+                current_tag = "ko"
+                def pass2_chunk_handler(chunk):
                     nonlocal current_tag
-                    
                     while chunk:
-                        tags = {"[ENGLISH]": "en", "[KOREAN]": "ko", "[CHINESE]": "zh", "[JSON]": "json", "[JSON_KO]": "json_ko"}
+                        # Order matters! [JSON_KO] must be before [JSON] to prevent substring matching
+                        tags = {"[KOREAN]": "ko", "[CHINESE]": "zh", "[JSON_KO]": "json_ko", "[JSON]": "json"}
                         first_tag_pos = -1
                         first_tag_str = ""
                         
@@ -1254,10 +1379,7 @@ class PromptApp:
                                 first_tag_str = t
                                 
                         if first_tag_pos == -1:
-                            if current_tag == "en":
-                                self.root.after(0, lambda c=chunk: self.output_text.insert("end", c))
-                                self.root.after(0, lambda: self.output_text.see("end"))
-                            elif current_tag == "ko":
+                            if current_tag == "ko":
                                 self.root.after(0, lambda c=chunk: self.translation_text.insert("end", c))
                                 self.root.after(0, lambda: self.translation_text.see("end"))
                             elif current_tag == "zh":
@@ -1273,9 +1395,7 @@ class PromptApp:
                             
                         pre_text = chunk[:first_tag_pos]
                         if pre_text:
-                            if current_tag == "en":
-                                self.root.after(0, lambda p=pre_text: self.output_text.insert("end", p))
-                            elif current_tag == "ko":
+                            if current_tag == "ko":
                                 self.root.after(0, lambda p=pre_text: self.translation_text.insert("end", p))
                             elif current_tag == "zh":
                                 self.root.after(0, lambda p=pre_text: self.translation_zh_text.insert("end", p))
@@ -1285,9 +1405,7 @@ class PromptApp:
                                 self.root.after(0, lambda p=pre_text: self.json_ko_output_text.insert("end", p))
                                 
                         current_tag = tags[first_tag_str]
-                        if current_tag == "en":
-                            self.root.after(0, lambda: self.output_text.delete("1.0", "end"))
-                        elif current_tag == "ko":
+                        if current_tag == "ko":
                             self.root.after(0, lambda: self.translation_text.delete("1.0", "end"))
                         elif current_tag == "zh":
                             self.root.after(0, lambda: self.translation_zh_text.delete("1.0", "end"))
@@ -1305,9 +1423,11 @@ class PromptApp:
                     api_key=api_key,
                     model_name=model_name,
                     thinking_level=thinking_level,
-                    keyword_text=self.keyword_var.get().strip(),
+                    keyword_text=self.keyword_text.get("1.0", "end-1c").strip(),
                     on_chunk=chunk_handler,
-                    cancel_check=lambda: self.cancel_requested
+                    on_pass2_chunk=pass2_chunk_handler,
+                    cancel_check=lambda: self.cancel_requested,
+                    active_character_ids=self.get_active_character_ids()
                 )
                 
                 result["input_text"] = text_content
@@ -1358,14 +1478,16 @@ class PromptApp:
             try:
                 from ..core.prompt import generate_from_text_logic
                 
-                # Unified streaming handler (similar to image)
-                current_tag = "en"
-                
                 def chunk_handler(chunk):
+                    self.root.after(0, lambda c=chunk: self.output_text.insert("end", c))
+                    self.root.after(0, lambda: self.output_text.see("end"))
+
+                current_tag = "ko"
+                def pass2_chunk_handler(chunk):
                     nonlocal current_tag
-                    
                     while chunk:
-                        tags = {"[ENGLISH]": "en", "[KOREAN]": "ko", "[CHINESE]": "zh", "[JSON]": "json", "[JSON_KO]": "json_ko"}
+                        # Order matters! [JSON_KO] must be before [JSON] to prevent substring matching
+                        tags = {"[KOREAN]": "ko", "[CHINESE]": "zh", "[JSON_KO]": "json_ko", "[JSON]": "json"}
                         first_tag_pos = -1
                         first_tag_str = ""
                         
@@ -1376,10 +1498,7 @@ class PromptApp:
                                 first_tag_str = t
                                 
                         if first_tag_pos == -1:
-                            if current_tag == "en":
-                                self.root.after(0, lambda c=chunk: self.output_text.insert("end", c))
-                                self.root.after(0, lambda: self.output_text.see("end"))
-                            elif current_tag == "ko":
+                            if current_tag == "ko":
                                 self.root.after(0, lambda c=chunk: self.translation_text.insert("end", c))
                                 self.root.after(0, lambda: self.translation_text.see("end"))
                             elif current_tag == "zh":
@@ -1395,9 +1514,7 @@ class PromptApp:
                             
                         pre_text = chunk[:first_tag_pos]
                         if pre_text:
-                            if current_tag == "en":
-                                self.root.after(0, lambda p=pre_text: self.output_text.insert("end", p))
-                            elif current_tag == "ko":
+                            if current_tag == "ko":
                                 self.root.after(0, lambda p=pre_text: self.translation_text.insert("end", p))
                             elif current_tag == "zh":
                                 self.root.after(0, lambda p=pre_text: self.translation_zh_text.insert("end", p))
@@ -1421,9 +1538,11 @@ class PromptApp:
                 result, count = generate_from_text_logic(
                     text_content, api_key,
                     self.model_name, self.model_thinking_level,
-                    self.keyword_var.get(),
+                    self.keyword_text.get("1.0", "end-1c"),
                     on_chunk=chunk_handler,
-                    cancel_check=lambda: self.cancel_requested
+                    on_pass2_chunk=pass2_chunk_handler,
+                    cancel_check=lambda: self.cancel_requested,
+                    active_character_ids=self.get_active_character_ids()
                 )
                 
                 # Store original text in result
@@ -1500,3 +1619,181 @@ class PromptApp:
                 source_name = source_name.split("/")[-1]
                 
         self.status_var.set(f"대기열 처리 중 ({self.queue_processed_count}/{self.queue_total_count}) - {source_name}")
+
+    def clear_remix(self):
+        for cb in self.remix_combos.values():
+            cb.set("")
+
+    def refresh_remix_options(self):
+        import json
+        history_file = Path("history.txt")
+        if not history_file.exists():
+            return
+            
+        options = {attr: set() for attr in self.remix_attributes}
+        
+        try:
+            with open(history_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if not line.strip(): continue
+                    try:
+                        data = json.loads(line)
+                        json_out = data.get("json", "")
+                        if json_out:
+                            try:
+                                parsed = json.loads(json_out)
+                                for cat in ["scene_metadata", "characters", "environment_and_props", "photography_and_framing", "lighting_and_color", "dynamism_and_texture"]:
+                                    if cat in parsed:
+                                        val = parsed[cat]
+                                        if isinstance(val, dict):
+                                            for sub_k, sub_v in val.items():
+                                                if isinstance(sub_v, str) and sub_v:
+                                                    if "light" in sub_k or "color" in sub_k:
+                                                        options["Background_Lighting"].add(sub_v)
+                                                    if "camera" in sub_k or "lens" in sub_k:
+                                                        options["Camera"].add(sub_v)
+                                        elif isinstance(val, list) and cat == "characters":
+                                            for char_obj in val:
+                                                if isinstance(char_obj, dict):
+                                                    pose = char_obj.get("individual_pose")
+                                                    if pose:
+                                                        options["Pose"].add(pose)
+                                                    outfit = char_obj.get("outfit")
+                                                    if isinstance(outfit, dict):
+                                                        top = outfit.get("top")
+                                                        if top:
+                                                            options["Outfit"].add(top)
+                                                    expr = char_obj.get("facial_expression")
+                                                    if expr:
+                                                        options["Character_Expressions"].add(expr)
+                            except:
+                                pass
+                        
+                        en_text = data.get("en", "")
+                        for ln in en_text.split('\n'):
+                            if ':' in ln:
+                                parts = ln.split(':', 1)
+                                key = parts[0].strip().replace("/", "_")
+                                val = parts[1].strip()
+                                if key in options and val:
+                                    options[key].add(val)
+                    except:
+                        pass
+                        
+            for attr in self.remix_attributes:
+                vals = [""] + sorted(list(options[attr]))
+                if attr in self.remix_combos:
+                    self.remix_combos[attr]['values'] = vals
+        except Exception as e:
+            print(f"Error refreshing remix options: {e}")
+
+    def on_generate_remix(self):
+        if self.generation_in_progress:
+            return
+            
+        key_name = self.api_key_name_var.get()
+        api_key = get_api_key(key_name)
+        
+        if not self.model_var.get().startswith("local-llama-cpp") and not api_key:
+            messagebox.showwarning("알림", "사용할 API 키를 선택하거나 설정하세요.")
+            return
+            
+        assembled_parts = []
+        for attr in self.remix_attributes:
+            val = self.remix_combos[attr].get().strip()
+            if val:
+                assembled_parts.append(f"{attr.replace('_', '/')}: {val}")
+                
+        if not assembled_parts:
+            messagebox.showwarning("알림", "조합할 항목을 하나 이상 선택하거나 입력하세요.")
+            return
+            
+        assembled_text = "\n".join(assembled_parts)
+        
+        self.set_busy(True)
+        self.output_text.delete("1.0", "end")
+        self.translation_text.delete("1.0", "end")
+        self.translation_zh_text.delete("1.0", "end")
+        self.json_output_text.delete("1.0", "end")
+        self.json_ko_output_text.delete("1.0", "end")
+        
+        def worker():
+            try:
+                from ..core.prompt import generate_remix_logic
+                
+                def chunk_handler(chunk):
+                    self.root.after(0, lambda c=chunk: self.output_text.insert("end", c))
+                    self.root.after(0, lambda: self.output_text.see("end"))
+
+                current_tag = "ko"
+                def pass2_chunk_handler(chunk):
+                    nonlocal current_tag
+                    while chunk:
+                        tags = {"[KOREAN]": "ko", "[CHINESE]": "zh", "[JSON_KO]": "json_ko", "[JSON]": "json"}
+                        first_tag_pos = -1
+                        first_tag_str = ""
+                        
+                        for tag_str, tag_key in tags.items():
+                            pos = chunk.find(tag_str)
+                            if pos != -1 and (first_tag_pos == -1 or pos < first_tag_pos):
+                                first_tag_pos = pos
+                                first_tag_str = tag_str
+                                
+                        if first_tag_pos == -1:
+                            if current_tag == "ko":
+                                self.root.after(0, lambda c=chunk: self.translation_text.insert("end", c))
+                                self.root.after(0, lambda: self.translation_text.see("end"))
+                            elif current_tag == "zh":
+                                self.root.after(0, lambda c=chunk: self.translation_zh_text.insert("end", c))
+                                self.root.after(0, lambda: self.translation_zh_text.see("end"))
+                            elif current_tag == "json":
+                                self.root.after(0, lambda c=chunk: self.json_output_text.insert("end", c))
+                                self.root.after(0, lambda: self.json_output_text.see("end"))
+                            elif current_tag == "json_ko":
+                                self.root.after(0, lambda c=chunk: self.json_ko_output_text.insert("end", c))
+                                self.root.after(0, lambda: self.json_ko_output_text.see("end"))
+                            break
+                            
+                        pre_text = chunk[:first_tag_pos]
+                        if pre_text:
+                            if current_tag == "ko":
+                                self.root.after(0, lambda p=pre_text: self.translation_text.insert("end", p))
+                            elif current_tag == "zh":
+                                self.root.after(0, lambda p=pre_text: self.translation_zh_text.insert("end", p))
+                            elif current_tag == "json":
+                                self.root.after(0, lambda p=pre_text: self.json_output_text.insert("end", p))
+                            elif current_tag == "json_ko":
+                                self.root.after(0, lambda p=pre_text: self.json_ko_output_text.insert("end", p))
+                                
+                        current_tag = tags[first_tag_str]
+                        if current_tag == "ko":
+                            self.root.after(0, lambda: self.translation_text.delete("1.0", "end"))
+                        elif current_tag == "zh":
+                            self.root.after(0, lambda: self.translation_zh_text.delete("1.0", "end"))
+                        elif current_tag == "json":
+                            self.root.after(0, lambda: self.json_output_text.delete("1.0", "end"))
+                        elif current_tag == "json_ko":
+                            self.root.after(0, lambda: self.json_ko_output_text.delete("1.0", "end"))
+                            
+                        chunk = chunk[first_tag_pos + len(first_tag_str):]
+                
+                result, count = generate_remix_logic(
+                    assembled_text, api_key,
+                    self.model_name, self.model_thinking_level,
+                    self.keyword_text.get("1.0", "end-1c"),
+                    on_chunk=chunk_handler,
+                    on_pass2_chunk=pass2_chunk_handler,
+                    cancel_check=lambda: self.cancel_requested,
+                    active_character_ids=self.get_active_character_ids()
+                )
+                
+                result["input_text"] = assembled_text
+                if hasattr(self, 'keyword_text'):
+                    result["keyword"] = self.keyword_text.get("1.0", "end-1c")
+                    
+                self.root.after(0, self.on_success, result, count)
+                
+            except Exception as e:
+                self.root.after(0, self.on_error, e)
+                
+        threading.Thread(target=worker, daemon=True).start()

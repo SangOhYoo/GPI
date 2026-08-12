@@ -5,6 +5,15 @@ import socket
 from time import perf_counter
 from urllib.parse import urlparse
 
+# Gemini Safety Settings: Disable all content filters for uncensored output
+SAFETY_SETTINGS_NONE = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"},
+]
+
 def is_url(text):
     try:
         parsed = urlparse(text)
@@ -148,7 +157,10 @@ def call_llama_cpp(image_b64, mime_type, api_key, instruction, model_name="defau
                 ]
             }
         ],
-        "temperature": 0.4
+        "temperature": 0.4,
+        "max_tokens": 16384,
+        "response_format": {"type": "json_object"},
+        "enable_thinking": False
     }
     data = json.dumps(body).encode("utf-8")
     headers = {"Content-Type": "application/json"}
@@ -178,7 +190,8 @@ def call_gemini(image_b64, mime_type, api_key, instruction, model_name, thinking
                 {"text": instruction}
             ]
         }],
-        "generationConfig": {"temperature": 0.4, "topP": 0.9, "topK": 32}
+        "generationConfig": {"temperature": 0.4, "topP": 0.9, "topK": 32, "maxOutputTokens": 8192},
+        "safetySettings": SAFETY_SETTINGS_NONE
     }
     if thinking_level:
         body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking_level}
@@ -192,8 +205,10 @@ def call_gemini(image_b64, mime_type, api_key, instruction, model_name, thinking
             res_data = json.loads(response.read().decode("utf-8"))
             candidate = res_data.get("candidates", [{}])[0]
             parts = candidate.get("content", {}).get("parts", [])
-            text = "".join([p.get("text", "") for p in parts if p.get("text")])
-            return text.strip()
+            text = "".join([p.get("text", "") for p in parts if p.get("text")]).strip()
+            if not text:
+                raise RuntimeError("API 응답이 비어있습니다. (안전 필터에 의해 차단되었거나 지원되지 않는 입력입니다.)")
+            return text
     except Exception as e:
         raise RuntimeError(f"API 호출 오류: {str(e)}")
 
@@ -228,7 +243,10 @@ def call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk=N
             }
         ],
         "temperature": 0.4,
-        "stream": True
+        "stream": True,
+        "max_tokens": 16384,
+        "response_format": {"type": "json_object"},
+        "enable_thinking": False
     }
     data = json.dumps(body).encode("utf-8")
     headers = {"Content-Type": "application/json"}
@@ -266,25 +284,34 @@ def call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk=N
                             continue
                             
                         # Handle stream (delta) or full response (message)
+                        # IMPORTANT: Only collect 'content' for JSON parsing.
+                        # 'reasoning_content' (thinking process from Qwen3/Gemma4) is
+                        # streamed to UI for display but excluded from the final result
+                        # to prevent JSON parse errors.
                         chunk_content = ""
+                        display_content = ""
                         if "delta" in choices[0]:
                             delta = choices[0]["delta"]
                             if "reasoning_content" in delta and delta["reasoning_content"]:
-                                chunk_content += delta["reasoning_content"]
+                                display_content += delta["reasoning_content"]
                             if "content" in delta and delta["content"]:
                                 chunk_content += delta["content"]
+                                display_content += delta["content"]
                         elif "message" in choices[0]:
                             msg = choices[0]["message"]
                             if "reasoning_content" in msg and msg["reasoning_content"]:
-                                chunk_content += msg["reasoning_content"]
+                                display_content += msg["reasoning_content"]
                             if "content" in msg and msg["content"]:
                                 chunk_content += msg["content"]
+                                display_content += msg["content"]
                             
                         if chunk_content:
                             combined += chunk_content
-                            if on_chunk:
-                                on_chunk(chunk_content)
+                        if display_content and on_chunk:
+                            on_chunk(display_content)
                     except json.JSONDecodeError:
+                        if "error" in payload.lower():
+                            raise RuntimeError(f"로컬 LLM 서버 오류 (Proxy/Crash): {payload}")
                         pass
             
             final_text = combined.strip()
@@ -310,7 +337,8 @@ def call_gemini_stream(image_b64, mime_type, api_key, instruction, model_name, t
                 {"text": instruction}
             ]
         }],
-        "generationConfig": {"temperature": 0.4}
+        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 8192},
+        "safetySettings": SAFETY_SETTINGS_NONE
     }
     if thinking_level:
         body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking_level}
@@ -350,7 +378,10 @@ def call_gemini_stream(image_b64, mime_type, api_key, instruction, model_name, t
                                     on_chunk(piece)
                     except json.JSONDecodeError:
                         pass
-            return combined.strip()
+            final_text = combined.strip()
+            if not final_text:
+                raise RuntimeError("API 응답이 비어있습니다. (안전 필터에 의해 차단되었거나 지원되지 않는 입력입니다.)")
+            return final_text
     except Exception as e:
         raise RuntimeError(f"API 스트리밍 오류: {str(e)}")
 
@@ -363,7 +394,10 @@ def call_llama_cpp_text(user_text, api_key, instruction, model_name="default"):
             {"role": "system", "content": instruction},
             {"role": "user", "content": user_text}
         ],
-        "temperature": 0.5
+        "temperature": 0.5,
+        "max_tokens": 16384,
+        "response_format": {"type": "json_object"},
+        "enable_thinking": False
     }
     data = json.dumps(body).encode("utf-8")
     headers = {"Content-Type": "application/json"}
@@ -393,7 +427,8 @@ def call_gemini_text(user_text, api_key, instruction, model_name, thinking_level
                 {"text": user_text}
             ]
         }],
-        "generationConfig": {"temperature": 0.5, "topP": 0.9, "topK": 32}
+        "generationConfig": {"temperature": 0.5, "topP": 0.9, "topK": 32, "maxOutputTokens": 8192},
+        "safetySettings": SAFETY_SETTINGS_NONE
     }
     if thinking_level:
         body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking_level}
@@ -407,8 +442,10 @@ def call_gemini_text(user_text, api_key, instruction, model_name, thinking_level
             res_data = json.loads(response.read().decode("utf-8"))
             candidate = res_data.get("candidates", [{}])[0]
             parts = candidate.get("content", {}).get("parts", [])
-            text = "".join([p.get("text", "") for p in parts if p.get("text")])
-            return text.strip()
+            text = "".join([p.get("text", "") for p in parts if p.get("text")]).strip()
+            if not text:
+                raise RuntimeError("API 응답이 비어있습니다. (안전 필터에 의해 차단되었거나 지원되지 않는 입력입니다.)")
+            return text
     except Exception as e:
         raise RuntimeError(f"API 호출 오류 (Text): {str(e)}")
 
@@ -422,7 +459,10 @@ def call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk=None, c
             {"role": "user", "content": user_text}
         ],
         "temperature": 0.5,
-        "stream": True
+        "stream": True,
+        "max_tokens": 16384,
+        "response_format": {"type": "json_object"},
+        "enable_thinking": False
     }
     data = json.dumps(body).encode("utf-8")
     headers = {"Content-Type": "application/json"}
@@ -460,25 +500,33 @@ def call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk=None, c
                             continue
                             
                         # Handle stream (delta) or full response (message)
+                        # IMPORTANT: Only collect 'content' for JSON parsing.
+                        # 'reasoning_content' (thinking process from Qwen3/Gemma4) is
+                        # streamed to UI for display but excluded from the final result.
                         chunk_content = ""
+                        display_content = ""
                         if "delta" in choices[0]:
                             delta = choices[0]["delta"]
                             if "reasoning_content" in delta and delta["reasoning_content"]:
-                                chunk_content += delta["reasoning_content"]
+                                display_content += delta["reasoning_content"]
                             if "content" in delta and delta["content"]:
                                 chunk_content += delta["content"]
+                                display_content += delta["content"]
                         elif "message" in choices[0]:
                             msg = choices[0]["message"]
                             if "reasoning_content" in msg and msg["reasoning_content"]:
-                                chunk_content += msg["reasoning_content"]
+                                display_content += msg["reasoning_content"]
                             if "content" in msg and msg["content"]:
                                 chunk_content += msg["content"]
+                                display_content += msg["content"]
                             
                         if chunk_content:
                             combined += chunk_content
-                            if on_chunk:
-                                on_chunk(chunk_content)
+                        if display_content and on_chunk:
+                            on_chunk(display_content)
                     except json.JSONDecodeError:
+                        if "error" in payload.lower():
+                            raise RuntimeError(f"로컬 LLM 서버 오류 (Proxy/Crash): {payload}")
                         pass
             
             final_text = combined.strip()
@@ -504,7 +552,8 @@ def call_gemini_text_stream(user_text, api_key, instruction, model_name, thinkin
                 {"text": user_text}
             ]
         }],
-        "generationConfig": {"temperature": 0.5}
+        "generationConfig": {"temperature": 0.5, "maxOutputTokens": 8192},
+        "safetySettings": SAFETY_SETTINGS_NONE
     }
     if thinking_level:
         body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking_level}
@@ -544,6 +593,9 @@ def call_gemini_text_stream(user_text, api_key, instruction, model_name, thinkin
                                     on_chunk(piece)
                     except json.JSONDecodeError:
                         pass
-            return combined.strip()
+            final_text = combined.strip()
+            if not final_text:
+                raise RuntimeError("API 응답이 비어있습니다. (안전 필터에 의해 차단되었거나 지원되지 않는 입력입니다.)")
+            return final_text
     except Exception as e:
         raise RuntimeError(f"API 스트리밍 오류 (Text): {str(e)}")

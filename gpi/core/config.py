@@ -9,6 +9,7 @@ OLD_API_KEY_FILE = BASE_DIR / "gpi_api_key.txt"
 LOG_FILE = BASE_DIR / "gpi_events.jsonl"
 HISTORY_FILE = BASE_DIR / "history.txt"
 HISTORY_IMAGES_DIR = BASE_DIR / "history_images"
+CHARACTERS_FILE = BASE_DIR / "gpi_characters.json"
 
 # Ensure history images directory exists
 if not HISTORY_IMAGES_DIR.exists():

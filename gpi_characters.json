@@ -1,0 +1,55 @@
+{
+  "characters": [
+    {
+      "id": "9fda60d1-3a1b-4fa2-9d1d-cb7121867463",
+      "name": "Park Joo Mi",
+      "demographics": {
+        "age": "34",
+        "gender": "Female",
+        "ethnicity": "Asian / South Korea"
+      },
+      "appearance": {
+        "hair": "Long wavy hair",
+        "facial_features": "Beautiful, Earrings, necklace, bracelet, well-groomed fingernails and toenails, Wedding ring, nail polish, eyeshadow,",
+        "body_type": "Slim, super model,"
+      },
+      "default_outfit": "Completely naked",
+      "personality_cues": "Passive, very shy, She was once a chaste and virtuous married woman, but due to a specific catalyst—such as blackmail or falling in love—she eventually engages in a physical affair with a man other than her husband.",
+      "key_relationships": "Husband, extramarital affairs, 19-year-old male, Black male in his 20s"
+    },
+    {
+      "id": "d7329629-60ed-492c-92eb-ee7bd7318853",
+      "name": "takumi",
+      "demographics": {
+        "age": "19",
+        "gender": "male",
+        "ethnicity": "asian/korean"
+      },
+      "appearance": {
+        "hair": "short",
+        "facial_features": "soft facial features, charming smile, dark expressive eyes",
+        "body_type": "lean athletic build, tall and fit"
+      },
+      "default_outfit": "naked",
+      "personality_cues": "bold, energetic, confident expression, playful smirk",
+      "key_relationships": "Intimate physical relationship with an older married woman (ParkJooMi)"
+    },
+    {
+      "id": "aacc7f05-de99-4b48-b732-8630fb03c973",
+      "name": "Marcus",
+      "demographics": {
+        "age": "25",
+        "gender": "male",
+        "ethnicity": "black / african-american"
+      },
+      "appearance": {
+        "hair": "short fade haircut with clean line-up",
+        "facial_features": "sharp defined jawline, deep captivating eyes, smooth dark skin",
+        "body_type": "tall, muscular and athletic build, broad shoulders"
+      },
+      "default_outfit": "naked, gold chain",
+      "personality_cues": "confident, dominant presence, intense gaze, playful smirk, magnetic aura",
+      "key_relationships": "ecret physical affair with ParkJooMi (older married woman)"
+    }
+  ]
+}
