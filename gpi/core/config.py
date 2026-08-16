@@ -70,7 +70,7 @@ URL_DOWNLOAD_MAX_SECONDS = 30
 URL_DOWNLOAD_CHUNK_SIZE = 65536
 
 # UI Constants
-DEFAULT_KEYWORD = "Authentic candid photo of an East Asian person (Korean, Japanese, or Chinese based on visual context), Kodak Portra, 35mm film, natural lighting, automatically determining and applying optimal camera settings (aperture, shutter speed, ISO), film stock character, and lighting conditions based on the scene analysis;"
+DEFAULT_KEYWORD = "Authentic candid photo of an East Asian person (Korean, Japanese, or Chinese based on visual context), natural lighting, automatically determining and applying the most fitting photographic medium, camera model, lens specifications, exposure parameters (aperture, shutter speed, ISO), and authentic color/grain rendering based on the scene analysis;"
 MAX_UI_HISTORY = None
 CANCELLED_MESSAGE = "USER_CANCELLED"
 DOWNLOAD_TIMEOUT_MESSAGE = "DOWNLOAD_TIMEOUT"

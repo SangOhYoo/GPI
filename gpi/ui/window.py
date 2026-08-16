@@ -29,7 +29,8 @@ from ..core.prompt import (
     save_all_history, delete_history_item_files,
     load_presets, save_presets, extract_pose_and_expression,
     extract_all_attributes, add_prompt_preset, add_attribute_preset,
-    delete_preset, CATEGORY_KOREAN_NAMES
+    delete_preset, CATEGORY_KOREAN_NAMES,
+    assemble_text_prompt
 )
 from ..core.utils import log_event
 try:
@@ -370,6 +371,77 @@ class PromptApp:
         self.remix_fav_only_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(remix_btn_frame, text="즐겨찾기만 필터링", variable=self.remix_fav_only_var, command=self.refresh_remix_options).pack(side="left", padx=SPACING["md"])
 
+        # Tab 5: JSON Editor [NEW]
+        self.json_editor_tab = ttk.Frame(self.input_notebook)
+        self.input_notebook.add(self.json_editor_tab, text="JSON 편집기")
+        
+        # -- Top: JSON Input Area --
+        je_input_frame = ttk.LabelFrame(self.json_editor_tab, text="JSON 입력", style="Card.TLabelframe")
+        je_input_frame.pack(fill="x", padx=SPACING["xs"], pady=(SPACING["xs"], SPACING["sm"]))
+        
+        je_btn_frame = ttk.Frame(je_input_frame)
+        je_btn_frame.pack(fill="x", padx=SPACING["sm"], pady=(SPACING["xs"], 2))
+        ttk.Button(je_btn_frame, text="JSON 파싱", command=self.on_parse_json_editor).pack(side="left")
+        ttk.Button(je_btn_frame, text="현재 결과 불러오기", command=self.on_load_current_json).pack(side="left", padx=SPACING["sm"])
+        ttk.Button(je_btn_frame, text="수정 JSON 미리보기", command=self.on_preview_edited_json).pack(side="right")
+        ttk.Button(je_btn_frame, text="내용 비우기", command=self.on_clear_json_editor).pack(side="right", padx=(0, SPACING["sm"]))
+        
+        je_input_container = ttk.Frame(je_input_frame)
+        je_input_container.pack(fill="x", padx=SPACING["sm"], pady=(0, SPACING["sm"]))
+        
+        self.json_editor_input = tk.Text(
+            je_input_container, wrap="word", height=6, font=FONTS["monospace"],
+            bg=COLORS["surface_alt"], fg=COLORS["text_primary"],
+            insertbackground=COLORS["text_primary"], relief="flat",
+            highlightthickness=1, highlightbackground=COLORS["surface_alt_strong"],
+            highlightcolor=COLORS["accent"]
+        )
+        self.json_editor_input.pack(side="left", fill="both", expand=True)
+        
+        je_input_scroll = ttk.Scrollbar(je_input_container, orient="vertical", command=self.json_editor_input.yview)
+        je_input_scroll.pack(side="right", fill="y")
+        self.json_editor_input.config(yscrollcommand=je_input_scroll.set)
+        
+        # -- Bottom: Scrollable Attribute Editor --
+        je_editor_frame = ttk.LabelFrame(self.json_editor_tab, text="속성 편집", style="Card.TLabelframe")
+        je_editor_frame.pack(fill="both", expand=True, padx=SPACING["xs"], pady=(0, SPACING["xs"]))
+        
+        je_editor_container = ttk.Frame(je_editor_frame)
+        je_editor_container.pack(fill="both", expand=True, padx=SPACING["sm"], pady=SPACING["sm"])
+        
+        je_canvas = tk.Canvas(je_editor_container, highlightthickness=0, bg=COLORS["surface"])
+        je_scrollbar = ttk.Scrollbar(je_editor_container, orient="vertical", command=je_canvas.yview)
+        self.je_scrollable_frame = ttk.Frame(je_canvas)
+        
+        self.je_scrollable_frame.bind(
+            "<Configure>",
+            lambda e: je_canvas.configure(scrollregion=je_canvas.bbox("all"))
+        )
+        
+        je_canvas.create_window((0, 0), window=self.je_scrollable_frame, anchor="nw")
+        je_canvas.configure(yscrollcommand=je_scrollbar.set)
+        
+        # Enable mousewheel scrolling
+        def _on_je_mousewheel(event):
+            je_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        je_canvas.bind_all("<MouseWheel>", _on_je_mousewheel, add="+")
+        
+        je_canvas.pack(side="left", fill="both", expand=True)
+        je_scrollbar.pack(side="right", fill="y")
+        self.je_canvas = je_canvas
+        
+        # State for JSON editor
+        self.json_editor_data = {}  # Parsed JSON dict
+        self.json_editor_fields = {}  # {dotted_key: tk.Text widget}
+        
+        # Initial placeholder message
+        self.je_placeholder = ttk.Label(
+            self.je_scrollable_frame, 
+            text="JSON을 입력하고 'JSON 파싱' 버튼을 클릭하면\n여기에 편집 가능한 속성이 표시됩니다.",
+            foreground=COLORS["text_muted"], justify="center"
+        )
+        self.je_placeholder.pack(pady=40)
+
         # Bottom Options (Shared or common area)
         bottom_options = ttk.Frame(left_side)
         bottom_options.pack(fill="x", side="bottom")
@@ -514,6 +586,7 @@ class PromptApp:
         ttk.Button(json_toolbar, text="복사 (Copy)", command=self.on_copy_json).pack(side="right")
         ttk.Button(json_toolbar, text="저장 (Save)", command=self.on_save_edits).pack(side="right", padx=(0, SPACING["sm"]))
         ttk.Button(json_toolbar, text="⭐ 속성 즐겨찾기", command=self.on_favorite_current_json_attributes).pack(side="right", padx=(0, SPACING["sm"]))
+        ttk.Button(json_toolbar, text="📝 JSON 편집기로 내보내기", command=self.on_export_to_json_editor).pack(side="right", padx=(0, SPACING["sm"]))
         
         self.json_output_text = tk.Text(json_frame, wrap="word", height=8, font=FONTS["monospace"], foreground=COLORS["text_secondary"])
         self.json_output_text.pack(fill="both", expand=True, padx=SPACING["sm"], pady=SPACING["sm"])
@@ -1818,6 +1891,8 @@ class PromptApp:
             self.on_generate_prompt_aug()
         elif active_tab == 3: # Prompt Remix Tab
             self.on_generate_remix()
+        elif active_tab == 4: # JSON Editor Tab
+            self.on_generate_json_edit()
 
     def on_pick_prompt_file(self):
         path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt;*.md;*.log")])
@@ -2123,6 +2198,385 @@ class PromptApp:
                 source_name = source_name.split("/")[-1]
                 
         self.status_var.set(f"대기열 처리 중 ({self.queue_processed_count}/{self.queue_total_count}) - {source_name}")
+
+    # =========================================================================
+    # JSON Editor Methods
+    # =========================================================================
+    
+    def on_export_to_json_editor(self):
+        """Export the current KREA2 JSON output to the JSON editor tab and switch to it."""
+        # Use the existing on_load_current_json logic, then switch tab
+        import json
+        json_text = self.json_output_text.get("1.0", "end-1c").strip()
+        en_text = self.output_text.get("1.0", "end-1c").strip()
+        
+        if not json_text and not en_text:
+            messagebox.showwarning("알림", "내보낼 생성 결과가 없습니다. 먼저 프롬프트를 생성하세요.")
+            return
+        
+        # Switch to JSON editor tab first
+        self.input_notebook.select(self.json_editor_tab)
+        
+        # Then load the data (reuse on_load_current_json)
+        self.on_load_current_json()
+        self.status_var.set("KREA2 JSON을 JSON 편집기로 내보냈습니다.")
+    
+    def on_parse_json_editor(self):
+        """Parse the JSON input and build editable attribute fields."""
+        import json
+        raw_text = self.json_editor_input.get("1.0", "end-1c").strip()
+        if not raw_text:
+            messagebox.showwarning("알림", "파싱할 JSON을 입력하세요.")
+            return
+        
+        try:
+            data = json.loads(raw_text)
+        except json.JSONDecodeError as e:
+            messagebox.showerror("JSON 파싱 오류", f"올바른 JSON 형식이 아닙니다:\n{e}")
+            return
+        
+        self.json_editor_data = data
+        self._build_json_editor_fields(data)
+        self.status_var.set("JSON 파싱 완료 - 속성을 편집하세요.")
+    
+    def on_load_current_json(self):
+        """Load the current KREA2 JSON output into the JSON editor."""
+        import json
+        json_text = self.json_output_text.get("1.0", "end-1c").strip()
+        en_text = self.output_text.get("1.0", "end-1c").strip()
+        
+        if not json_text and not en_text:
+            messagebox.showwarning("알림", "불러올 생성 결과가 없습니다. 먼저 프롬프트를 생성하세요.")
+            return
+        
+        # Try to reconstruct the full structure with text_prompt + krea2_json
+        combined = {}
+        
+        # Parse text_prompt from English output
+        if en_text:
+            text_prompt_dict = {}
+            for line in en_text.split("\n"):
+                if ":" in line:
+                    key_part, val_part = line.split(":", 1)
+                    key_clean = key_part.strip().replace("/", "_").replace(" ", "_").replace("&", "")
+                    # Map display labels back to keys
+                    label_to_key = {
+                        "Background_Lighting": "Background_Lighting",
+                        "Person": "Person",
+                        "Character_Expressions": "Character_Expressions",
+                        "Pose": "Pose",
+                        "Skin__Body_Condition": "Skin_Body_Condition",
+                        "Skin_Body_Condition": "Skin_Body_Condition",
+                        "Outfit": "Outfit",
+                        "Camera": "Camera",
+                        "Mood_Color": "Mood_Color",
+                        "Style": "Style",
+                        "Text__Layout_Instruction": "Text_Layout_Instruction",
+                        "Text_Layout_Instruction": "Text_Layout_Instruction",
+                        "Characters": "Characters",
+                        "Interpersonal_Dynamics": "Interpersonal_Dynamics",
+                        "Props__Environment_Details": "Props_Environment_Details",
+                        "Camera__Composition": "Camera_Composition",
+                        "Style__Texture": "Style_Texture",
+                    }
+                    actual_key = label_to_key.get(key_clean, key_clean)
+                    text_prompt_dict[actual_key] = val_part.strip()
+            if text_prompt_dict:
+                combined["text_prompt"] = text_prompt_dict
+        
+        # Parse krea2_json
+        if json_text:
+            try:
+                krea2_data = json.loads(json_text)
+                combined["krea2_json"] = krea2_data
+            except json.JSONDecodeError:
+                pass
+        
+        if not combined:
+            messagebox.showwarning("알림", "불러올 데이터가 없습니다.")
+            return
+        
+        # Set the JSON editor input
+        formatted = json.dumps(combined, indent=2, ensure_ascii=False)
+        self.json_editor_input.delete("1.0", "end")
+        self.json_editor_input.insert("1.0", formatted)
+        
+        # Parse it
+        self.json_editor_data = combined
+        self._build_json_editor_fields(combined)
+        self.status_var.set("현재 결과를 JSON 편집기에 불러왔습니다.")
+    
+    def on_preview_edited_json(self):
+        """Collect edited fields and update the JSON input area."""
+        import json
+        if not self.json_editor_fields:
+            messagebox.showwarning("알림", "먼저 JSON을 파싱하세요.")
+            return
+        
+        edited = self._collect_edited_json()
+        formatted = json.dumps(edited, indent=2, ensure_ascii=False)
+        self.json_editor_input.delete("1.0", "end")
+        self.json_editor_input.insert("1.0", formatted)
+        self.status_var.set("수정된 JSON이 입력 영역에 반영되었습니다.")
+    
+    def on_clear_json_editor(self):
+        """Clear the JSON editor input and attribute fields."""
+        self.json_editor_input.delete("1.0", "end")
+        self.json_editor_data = {}
+        self.json_editor_fields = {}
+        for widget in self.je_scrollable_frame.winfo_children():
+            widget.destroy()
+        # Re-add placeholder
+        self.je_placeholder = ttk.Label(
+            self.je_scrollable_frame,
+            text="JSON을 입력하고 'JSON 파싱' 버튼을 클릭하면\n여기에 편집 가능한 속성이 표시됩니다.",
+            foreground=COLORS["text_muted"], justify="center"
+        )
+        self.je_placeholder.pack(pady=40)
+        self.status_var.set("JSON 편집기가 초기화되었습니다.")
+    
+    def _build_json_editor_fields(self, data):
+        """Dynamically build editable fields from parsed JSON dict."""
+        # Clear existing widgets
+        for widget in self.je_scrollable_frame.winfo_children():
+            widget.destroy()
+        self.json_editor_fields = {}
+        
+        section_labels = {
+            "text_prompt": "📝 Text Prompt (텍스트 프롬프트)",
+            "krea2_json": "🎨 KREA2 JSON"
+        }
+        
+        field_labels = {
+            "Background_Lighting": "🌅 배경/조명",
+            "Person": "👤 인물",
+            "Character_Expressions": "🎭 표정",
+            "Pose": "🧍 포즈",
+            "Skin_Body_Condition": "✨ 피부/신체",
+            "Outfit": "👗 의상",
+            "Camera": "📷 카메라",
+            "Mood_Color": "🎨 분위기/색상",
+            "Style": "🖌️ 스타일",
+            "Text_Layout_Instruction": "📐 텍스트/레이아웃",
+            "Characters": "👥 캐릭터",
+            "Interpersonal_Dynamics": "🤝 대인 관계",
+            "Props_Environment_Details": "🏠 소품/환경",
+            "Camera_Composition": "📷 카메라/구도",
+            "Style_Texture": "🖌️ 스타일/질감",
+        }
+        
+        def add_section(parent, section_key, section_data, prefix=""):
+            """Recursively add editable fields for a section."""
+            if isinstance(section_data, dict):
+                for key, value in section_data.items():
+                    dotted_key = f"{prefix}.{key}" if prefix else key
+                    
+                    if isinstance(value, dict):
+                        # Nested section - create a LabelFrame
+                        label_text = field_labels.get(key, key.replace("_", " ").title())
+                        nested_frame = ttk.LabelFrame(parent, text=label_text, style="Card.TLabelframe")
+                        nested_frame.pack(fill="x", pady=(SPACING["xs"], SPACING["sm"]), padx=2)
+                        add_section(nested_frame, key, value, dotted_key)
+                    elif isinstance(value, list):
+                        # List - show as JSON string for editing
+                        import json
+                        label_text = field_labels.get(key, key.replace("_", " ").title())
+                        ttk.Label(parent, text=label_text, font=FONTS["bold"]).pack(anchor="w", padx=SPACING["xs"], pady=(SPACING["xs"], 0))
+                        
+                        text_widget = tk.Text(
+                            parent, wrap="word", height=3, font=FONTS["main"],
+                            bg=COLORS["surface_alt"], fg=COLORS["text_primary"],
+                            insertbackground=COLORS["text_primary"], relief="flat",
+                            highlightthickness=1, highlightbackground=COLORS["surface_alt_strong"],
+                            highlightcolor=COLORS["accent"]
+                        )
+                        text_widget.pack(fill="x", padx=SPACING["xs"], pady=(0, SPACING["xs"]))
+                        text_widget.insert("1.0", json.dumps(value, ensure_ascii=False, indent=2))
+                        self.json_editor_fields[dotted_key] = ("list", text_widget)
+                    else:
+                        # Leaf value - create label + text input
+                        label_text = field_labels.get(key, key.replace("_", " ").title())
+                        ttk.Label(parent, text=label_text, font=FONTS["bold"]).pack(anchor="w", padx=SPACING["xs"], pady=(SPACING["xs"], 0))
+                        
+                        str_val = str(value) if value is not None else ""
+                        # Determine height based on content length
+                        line_count = max(2, min(5, len(str_val) // 80 + 1))
+                        
+                        text_widget = tk.Text(
+                            parent, wrap="word", height=line_count, font=FONTS["main"],
+                            bg=COLORS["surface_alt"], fg=COLORS["text_primary"],
+                            insertbackground=COLORS["text_primary"], relief="flat",
+                            highlightthickness=1, highlightbackground=COLORS["surface_alt_strong"],
+                            highlightcolor=COLORS["accent"]
+                        )
+                        text_widget.pack(fill="x", padx=SPACING["xs"], pady=(0, SPACING["xs"]))
+                        text_widget.insert("1.0", str_val)
+                        self.json_editor_fields[dotted_key] = ("str", text_widget)
+        
+        # Build fields for each top-level section
+        for section_key in ["text_prompt", "krea2_json"]:
+            section_data = data.get(section_key)
+            if section_data:
+                section_label = section_labels.get(section_key, section_key)
+                section_frame = ttk.LabelFrame(self.je_scrollable_frame, text=section_label, style="Card.TLabelframe")
+                section_frame.pack(fill="x", pady=SPACING["sm"], padx=2)
+                add_section(section_frame, section_key, section_data, section_key)
+        
+        # Handle any other top-level keys not in text_prompt or krea2_json
+        other_keys = [k for k in data.keys() if k not in ("text_prompt", "krea2_json")]
+        if other_keys:
+            other_frame = ttk.LabelFrame(self.je_scrollable_frame, text="⚙️ 기타 속성", style="Card.TLabelframe")
+            other_frame.pack(fill="x", pady=SPACING["sm"], padx=2)
+            other_data = {k: data[k] for k in other_keys}
+            add_section(other_frame, "other", other_data, "")
+        
+        # Force canvas scroll region update
+        self.je_scrollable_frame.update_idletasks()
+        self.je_canvas.configure(scrollregion=self.je_canvas.bbox("all"))
+    
+    def _collect_edited_json(self):
+        """Collect current values from all editor fields into a dict."""
+        import json
+        result = {}
+        
+        for dotted_key, (val_type, widget) in self.json_editor_fields.items():
+            parts = dotted_key.split(".")
+            current = result
+            
+            # Navigate/create nested dicts
+            for part in parts[:-1]:
+                if part not in current:
+                    current[part] = {}
+                current = current[part]
+            
+            # Set the leaf value
+            raw_val = widget.get("1.0", "end-1c").strip()
+            if val_type == "list":
+                try:
+                    current[parts[-1]] = json.loads(raw_val)
+                except json.JSONDecodeError:
+                    current[parts[-1]] = raw_val
+            else:
+                current[parts[-1]] = raw_val
+        
+        return result
+    
+    def on_generate_json_edit(self):
+        """Generate a polished prompt from the user-edited JSON."""
+        import json
+        
+        if self.generation_in_progress:
+            return
+        
+        # Collect edited JSON
+        if self.json_editor_fields:
+            edited_data = self._collect_edited_json()
+        else:
+            # Try parsing directly from input text
+            raw_text = self.json_editor_input.get("1.0", "end-1c").strip()
+            if not raw_text:
+                messagebox.showwarning("알림", "편집할 JSON을 입력하고 'JSON 파싱' 버튼을 클릭하세요.")
+                return
+            try:
+                edited_data = json.loads(raw_text)
+            except json.JSONDecodeError as e:
+                messagebox.showerror("JSON 오류", f"올바른 JSON 형식이 아닙니다:\n{e}")
+                return
+        
+        edited_json_text = json.dumps(edited_data, indent=2, ensure_ascii=False)
+        
+        key_name = self.api_key_name_var.get()
+        api_key = get_api_key(key_name)
+        if not self.model_var.get().startswith("local-llama-cpp") and not api_key:
+            messagebox.showwarning("알림", "사용할 API 키를 선택하거나 설정하세요.")
+            return
+        
+        self.set_busy(True)
+        self.output_text.delete("1.0", "end")
+        self.translation_text.delete("1.0", "end")
+        self.translation_zh_text.delete("1.0", "end")
+        self.json_output_text.delete("1.0", "end")
+        self.json_ko_output_text.delete("1.0", "end")
+        
+        def worker():
+            try:
+                from ..core.prompt import generate_json_edit_logic
+                
+                def chunk_handler(chunk):
+                    self.root.after(0, lambda c=chunk: self.output_text.insert("end", c))
+                    self.root.after(0, lambda: self.output_text.see("end"))
+
+                current_tag = "ko"
+                def pass2_chunk_handler(chunk):
+                    nonlocal current_tag
+                    while chunk:
+                        tags = {"[KOREAN]": "ko", "[CHINESE]": "zh", "[JSON_KO]": "json_ko", "[JSON]": "json"}
+                        first_tag_pos = -1
+                        first_tag_str = ""
+                        
+                        for t in tags:
+                            pos = chunk.find(t)
+                            if pos != -1 and (first_tag_pos == -1 or pos < first_tag_pos):
+                                first_tag_pos = pos
+                                first_tag_str = t
+                                
+                        if first_tag_pos == -1:
+                            if current_tag == "ko":
+                                self.root.after(0, lambda c=chunk: self.translation_text.insert("end", c))
+                                self.root.after(0, lambda: self.translation_text.see("end"))
+                            elif current_tag == "zh":
+                                self.root.after(0, lambda c=chunk: self.translation_zh_text.insert("end", c))
+                                self.root.after(0, lambda: self.translation_zh_text.see("end"))
+                            elif current_tag == "json":
+                                self.root.after(0, lambda c=chunk: self.json_output_text.insert("end", c))
+                                self.root.after(0, lambda: self.json_output_text.see("end"))
+                            elif current_tag == "json_ko":
+                                self.root.after(0, lambda c=chunk: self.json_ko_output_text.insert("end", c))
+                                self.root.after(0, lambda: self.json_ko_output_text.see("end"))
+                            break
+                            
+                        pre_text = chunk[:first_tag_pos]
+                        if pre_text:
+                            if current_tag == "ko":
+                                self.root.after(0, lambda p=pre_text: self.translation_text.insert("end", p))
+                            elif current_tag == "zh":
+                                self.root.after(0, lambda p=pre_text: self.translation_zh_text.insert("end", p))
+                            elif current_tag == "json":
+                                self.root.after(0, lambda p=pre_text: self.json_output_text.insert("end", p))
+                            elif current_tag == "json_ko":
+                                self.root.after(0, lambda p=pre_text: self.json_ko_output_text.insert("end", p))
+                                
+                        current_tag = tags[first_tag_str]
+                        if current_tag == "ko":
+                            self.root.after(0, lambda: self.translation_text.delete("1.0", "end"))
+                        elif current_tag == "zh":
+                            self.root.after(0, lambda: self.translation_zh_text.delete("1.0", "end"))
+                        elif current_tag == "json":
+                            self.root.after(0, lambda: self.json_output_text.delete("1.0", "end"))
+                        elif current_tag == "json_ko":
+                            self.root.after(0, lambda: self.json_ko_output_text.delete("1.0", "end"))
+                            
+                        chunk = chunk[first_tag_pos + len(first_tag_str):]
+                
+                result, count = generate_json_edit_logic(
+                    edited_json_text, api_key,
+                    self.model_name, self.model_thinking_level,
+                    self.keyword_text.get("1.0", "end-1c"),
+                    on_chunk=chunk_handler,
+                    on_pass2_chunk=pass2_chunk_handler,
+                    cancel_check=lambda: self.cancel_requested,
+                    active_character_ids=self.get_active_character_ids()
+                )
+                
+                result["input_text"] = edited_json_text
+                text_source = {"type": "text_input", "value": "JSON편집: " + edited_json_text[:40] + "...", "name": "JSON Edit"}
+                self.image_source = text_source
+                
+                self.root.after(0, lambda: self.on_success(result, count))
+            except Exception as e:
+                self.root.after(0, lambda err=str(e): self.on_error(err))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def clear_remix(self):
         for cb in self.remix_combos.values():
