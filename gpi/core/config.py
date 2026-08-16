@@ -10,6 +10,7 @@ LOG_FILE = BASE_DIR / "gpi_events.jsonl"
 HISTORY_FILE = BASE_DIR / "history.txt"
 HISTORY_IMAGES_DIR = BASE_DIR / "history_images"
 CHARACTERS_FILE = BASE_DIR / "gpi_characters.json"
+PRESETS_FILE = BASE_DIR / "gpi_presets.json"
 
 # Ensure history images directory exists
 if not HISTORY_IMAGES_DIR.exists():
@@ -17,21 +18,24 @@ if not HISTORY_IMAGES_DIR.exists():
 
 import configparser
 
+
 def get_local_llama_cpp_models():
     models = []
     try:
         import urllib.request
         import json
+
         req = urllib.request.Request("http://localhost:8081/v1/models")
         with urllib.request.urlopen(req, timeout=2.0) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            for model in data.get('data', []):
+            data = json.loads(response.read().decode("utf-8"))
+            for model in data.get("data", []):
                 models.append(f"local-llama-cpp: {model['id']}")
     except Exception:
         pass
     if not models:
         models.append("local-llama-cpp")
     return models
+
 
 # Gemini API Constants
 MODEL_OPTIONS = [
@@ -49,7 +53,9 @@ MODEL_THINKING_LEVELS = {
     "gemini-2.0-flash-thinking-exp-01-21": "low",
 }
 
-API_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+API_URL_TEMPLATE = (
+    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+)
 API_STREAM_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse"
 
 # Image Constraints
@@ -64,9 +70,11 @@ URL_DOWNLOAD_MAX_SECONDS = 30
 URL_DOWNLOAD_CHUNK_SIZE = 65536
 
 # UI Constants
+DEFAULT_KEYWORD = "Authentic candid photo of an East Asian person (Korean, Japanese, or Chinese based on visual context), Kodak Portra, 35mm film, natural lighting, automatically determining and applying optimal camera settings (aperture, shutter speed, ISO), film stock character, and lighting conditions based on the scene analysis;"
 MAX_UI_HISTORY = None
 CANCELLED_MESSAGE = "USER_CANCELLED"
 DOWNLOAD_TIMEOUT_MESSAGE = "DOWNLOAD_TIMEOUT"
+
 
 def load_api_keys():
     # Migration logic
@@ -85,8 +93,10 @@ def load_api_keys():
             return {}
     return {}
 
+
 def save_api_keys(keys):
     API_KEYS_FILE.write_text(json.dumps(keys, indent=2), encoding="utf-8")
+
 
 def get_api_key(name="Default"):
     env_key = os.environ.get("GOOGLE_API_KEY")
@@ -95,12 +105,15 @@ def get_api_key(name="Default"):
     keys = load_api_keys()
     return keys.get(name, "")
 
+
 # Keep these for backward compatibility if needed, but they are mostly obsolete
 def load_api_key():
     return get_api_key()
 
+
 def save_api_key(key):
     save_api_keys({"Default": key})
+
 
 def delete_api_key():
     if API_KEYS_FILE.exists():

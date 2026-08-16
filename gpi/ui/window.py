@@ -1,11 +1,11 @@
 import threading
 import tkinter as tk
 import queue
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
 from pathlib import Path
 
 from .styles import COLORS, SPACING, FONTS
-from .dialogs import ApiKeyDialog
+from .dialogs import ApiKeyDialog, JsonAttributeFavoriteDialog, PresetManagerDialog
 from .character_dialog import CharacterManagerDialog
 from .dnd import (
     setup_dnd, get_image_from_clipboard, WIN_DND_AVAILABLE,
@@ -14,7 +14,7 @@ from .dnd import (
 )
 from ..core.config import (
     MODEL_OPTIONS, MODEL_THINKING_LEVELS, get_api_key, 
-    CANCELLED_MESSAGE, load_api_keys,
+    CANCELLED_MESSAGE, load_api_keys, DEFAULT_KEYWORD,
     MIN_PROMPT_WORDS, MAX_PROMPT_WORDS, 
     HIGH_FIDELITY_MIN_WORDS, HIGH_FIDELITY_MAX_WORDS
 )
@@ -26,7 +26,10 @@ from ..core.image import (
 from ..core.api import download_image_from_url, validate_model_access, fetch_available_models, is_url
 from ..core.prompt import (
     generate_prompt_logic, append_history, load_history, 
-    save_all_history, delete_history_item_files
+    save_all_history, delete_history_item_files,
+    load_presets, save_presets, extract_pose_and_expression,
+    extract_all_attributes, add_prompt_preset, add_attribute_preset,
+    delete_preset, CATEGORY_KOREAN_NAMES
 )
 from ..core.utils import log_event
 try:
@@ -63,7 +66,7 @@ class PromptApp:
         self.model_var = tk.StringVar(value=self.model_name)
         self.api_key_name_var = tk.StringVar(value="Default")
         self.file_path_var = tk.StringVar(value="선택된 파일 없음")
-        self.keyword_var = tk.StringVar(value="고화질 4K 극사실주의 사진, 동양인,")
+        self.keyword_var = tk.StringVar(value=DEFAULT_KEYWORD)
         self.status_var = tk.StringVar(value="대기 중")
         
         # Fidelity and Word Count State
@@ -92,6 +95,7 @@ class PromptApp:
         self.setup_ui()
         self.setup_dnd()
         self.refresh_history_list()
+        self.refresh_favorites_tab()
         
         # Initial model fetch
         self.root.after(100, self.refresh_models)
@@ -171,6 +175,34 @@ class PromptApp:
             cb = ttk.Checkbutton(self.char_inner_frame, text=c_name, variable=var)
             cb.pack(side="left", padx=5)
 
+    def refresh_presets_combos(self):
+        presets = load_presets()
+        
+        expr_names = sorted(list(presets.get("expressions", {}).keys()))
+        self.preset_expression_combo["values"] = ["(사용 안 함)"] + expr_names
+        if not self.preset_expression_var.get() or self.preset_expression_var.get() not in self.preset_expression_combo["values"]:
+            self.preset_expression_var.set("(사용 안 함)")
+            
+        pose_names = sorted(list(presets.get("poses", {}).keys()))
+        self.preset_pose_combo["values"] = ["(사용 안 함)"] + pose_names
+        if not self.preset_pose_var.get() or self.preset_pose_var.get() not in self.preset_pose_combo["values"]:
+            self.preset_pose_var.set("(사용 안 함)")
+
+    def _get_override_presets(self):
+        presets = load_presets()
+        
+        sel_expr_name = self.preset_expression_var.get()
+        expression_override = None
+        if sel_expr_name and sel_expr_name != "(사용 안 함)":
+            expression_override = presets.get("expressions", {}).get(sel_expr_name)
+            
+        sel_pose_name = self.preset_pose_var.get()
+        pose_override = None
+        if sel_pose_name and sel_pose_name != "(사용 안 함)":
+            pose_override = presets.get("poses", {}).get(sel_pose_name)
+            
+        return pose_override, expression_override
+
     def get_active_character_ids(self):
         if not hasattr(self, "character_vars"):
             return []
@@ -199,6 +231,7 @@ class PromptApp:
         self.api_key_combo.pack(side="left", padx=SPACING["sm"])
         self.api_key_combo.bind("<<ComboboxSelected>>", self.on_api_key_change)
         
+        ttk.Button(top_panel, text="즐겨찾기 관리", command=self.open_preset_manager).pack(side="right", padx=(0, SPACING["sm"]))
         ttk.Button(top_panel, text="캐릭터 관리", command=self.open_character_manager).pack(side="right", padx=(0, SPACING["sm"]))
         ttk.Button(top_panel, text="API 키 관리", command=lambda: ApiKeyDialog(self)).pack(side="right")
         
@@ -334,6 +367,8 @@ class PromptApp:
         remix_btn_frame.pack(fill="x", pady=SPACING["sm"])
         ttk.Button(remix_btn_frame, text="내용 비우기", command=self.clear_remix).pack(side="right")
         ttk.Button(remix_btn_frame, text="목록 새로고침", command=self.refresh_remix_options).pack(side="left")
+        self.remix_fav_only_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(remix_btn_frame, text="즐겨찾기만 필터링", variable=self.remix_fav_only_var, command=self.refresh_remix_options).pack(side="left", padx=SPACING["md"])
 
         # Bottom Options (Shared or common area)
         bottom_options = ttk.Frame(left_side)
@@ -346,13 +381,45 @@ class PromptApp:
         self.char_inner_frame.pack(fill="x", padx=SPACING["sm"], pady=SPACING["sm"])
         self.character_vars = {}
         self.refresh_characters_ui()
+
+        # Pose & Expression Override Frame
+        self.override_frame = ttk.LabelFrame(bottom_options, text="포즈/표정 고정 오버라이드", style="Card.TLabelframe")
+        self.override_frame.pack(fill="x", pady=(0, SPACING["sm"]))
+        
+        override_inner = ttk.Frame(self.override_frame)
+        override_inner.pack(fill="x", padx=SPACING["sm"], pady=SPACING["sm"])
+        
+        # Grid layout for two comboboxes
+        override_inner.columnconfigure(1, weight=1)
+        override_inner.columnconfigure(3, weight=1)
+        
+        # Expression Override
+        ttk.Label(override_inner, text="표정:").grid(row=0, column=0, sticky="w", padx=(0, SPACING["xs"]))
+        self.preset_expression_var = tk.StringVar(value="")
+        self.preset_expression_combo = ttk.Combobox(override_inner, textvariable=self.preset_expression_var, state="readonly")
+        self.preset_expression_combo.grid(row=0, column=1, sticky="ew", padx=(0, SPACING["xs"]))
+        ttk.Button(override_inner, text="Clear", width=5, command=lambda: self.preset_expression_var.set("")).grid(row=0, column=2, padx=(0, SPACING["md"]))
+        
+        # Pose Override
+        ttk.Label(override_inner, text="포즈:").grid(row=0, column=3, sticky="w", padx=(0, SPACING["xs"]))
+        self.preset_pose_var = tk.StringVar(value="")
+        self.preset_pose_combo = ttk.Combobox(override_inner, textvariable=self.preset_pose_var, state="readonly")
+        self.preset_pose_combo.grid(row=0, column=4, sticky="ew", padx=(0, SPACING["xs"]))
+        ttk.Button(override_inner, text="Clear", width=5, command=lambda: self.preset_pose_var.set("")).grid(row=0, column=5)
+
+        self.refresh_presets_combos()
         self.refresh_remix_options()
 
         # Options
         opt_frame = ttk.LabelFrame(bottom_options, text="추가 옵션", style="Card.TLabelframe")
         opt_frame.pack(fill="x", pady=(0, SPACING["md"]))
         
-        ttk.Label(opt_frame, text="키워드 (선택):").pack(anchor="w", padx=SPACING["sm"])
+        kw_header = ttk.Frame(opt_frame)
+        kw_header.pack(fill="x", padx=SPACING["sm"], pady=(SPACING["xs"], 2))
+        ttk.Label(kw_header, text="키워드 (선택):").pack(side="left")
+        ttk.Button(kw_header, text="내용 비우기", command=self.on_clear_keyword).pack(side="right")
+        ttk.Button(kw_header, text="기본값 불러오기", command=self.on_reset_default_keyword).pack(side="right", padx=(0, SPACING["xs"]))
+
         self.keyword_text = tk.Text(
             opt_frame, font=FONTS["main"], height=4,
             bg=COLORS["surface_alt"], fg=COLORS["text_primary"],
@@ -361,7 +428,7 @@ class PromptApp:
             highlightcolor=COLORS["accent"]
         )
         self.keyword_text.pack(fill="x", padx=SPACING["sm"], pady=(0, SPACING["sm"]))
-        self.keyword_text.insert("1.0", "고화질 4K 극사실주의 사진, 동양인,")
+        self.keyword_text.insert("1.0", DEFAULT_KEYWORD)
         
         # High Fidelity Checkbox (Mainly for image analysis)
         self.hf_check = ttk.Checkbutton(
@@ -406,6 +473,7 @@ class PromptApp:
         en_toolbar.pack(fill="x", padx=SPACING["sm"], pady=(SPACING["xs"], 0))
         ttk.Button(en_toolbar, text="복사 (Copy)", command=self.on_copy_en).pack(side="right")
         ttk.Button(en_toolbar, text="저장 (Save)", command=self.on_save_edits).pack(side="right", padx=(0, SPACING["sm"]))
+        ttk.Button(en_toolbar, text="⭐ 전체 프롬프트 즐겨찾기", command=self.on_favorite_current_prompt).pack(side="right", padx=(0, SPACING["sm"]))
         
         self.output_text = tk.Text(en_frame, wrap="word", height=8, font=FONTS["monospace"])
         self.output_text.pack(fill="both", expand=True, padx=SPACING["sm"], pady=SPACING["sm"])
@@ -445,6 +513,7 @@ class PromptApp:
         json_toolbar.pack(fill="x", padx=SPACING["sm"], pady=(SPACING["xs"], 0))
         ttk.Button(json_toolbar, text="복사 (Copy)", command=self.on_copy_json).pack(side="right")
         ttk.Button(json_toolbar, text="저장 (Save)", command=self.on_save_edits).pack(side="right", padx=(0, SPACING["sm"]))
+        ttk.Button(json_toolbar, text="⭐ 속성 즐겨찾기", command=self.on_favorite_current_json_attributes).pack(side="right", padx=(0, SPACING["sm"]))
         
         self.json_output_text = tk.Text(json_frame, wrap="word", height=8, font=FONTS["monospace"], foreground=COLORS["text_secondary"])
         self.json_output_text.pack(fill="both", expand=True, padx=SPACING["sm"], pady=SPACING["sm"])
@@ -504,12 +573,50 @@ class PromptApp:
         txt_scroll = ttk.Scrollbar(self.text_hist_tab, orient="vertical", command=self.text_history_list.yview)
         txt_scroll.pack(side="right", fill="y")
         self.text_history_list.configure(yscrollcommand=txt_scroll.set)
+
+        # Tab 3: Favorites / Presets
+        self.favorites_hist_tab = ttk.Frame(self.history_notebook)
+        self.history_notebook.add(self.favorites_hist_tab, text="⭐ 즐겨찾기")
+        
+        fav_top_frame = ttk.Frame(self.favorites_hist_tab)
+        fav_top_frame.pack(fill="x", padx=SPACING["xs"], pady=(SPACING["xs"], SPACING["xs"]))
+        
+        ttk.Label(fav_top_frame, text="분류:").pack(side="left", padx=(0, 2))
+        self.fav_tab_cat_var = tk.StringVar(value="(전체)")
+        self.fav_tab_cat_combo = ttk.Combobox(
+            fav_top_frame, textvariable=self.fav_tab_cat_var, state="readonly", width=14,
+            values=["(전체)", "전체 프롬프트", "표정", "포즈", "배경/조명", "인물", "의상", "카메라", "분위기/색상", "스타일", "기타 속성"]
+        )
+        self.fav_tab_cat_combo.pack(side="left", padx=(0, SPACING["xs"]))
+        self.fav_tab_cat_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh_favorites_tab())
+        
+        ttk.Button(fav_top_frame, text="적용", width=5, command=self.on_apply_selected_favorite).pack(side="right")
+        ttk.Button(fav_top_frame, text="삭제", width=5, command=self.on_delete_selected_favorite).pack(side="right", padx=(0, 2))
+        ttk.Button(fav_top_frame, text="🔄", width=3, command=self.refresh_favorites_tab).pack(side="right", padx=(0, 2))
+        
+        self.favorites_list = ttk.Treeview(self.favorites_hist_tab, columns=("category", "name", "text"), show="headings", height=8)
+        self.favorites_list.heading("category", text="구분", command=lambda: self._treeview_sort_column(self.favorites_list, "category", False))
+        self.favorites_list.heading("name", text="이름", command=lambda: self._treeview_sort_column(self.favorites_list, "name", False))
+        self.favorites_list.heading("text", text="내용", command=lambda: self._treeview_sort_column(self.favorites_list, "text", False))
+        self.favorites_list.column("category", width=90, stretch=False)
+        self.favorites_list.column("name", width=120, stretch=False)
+        self.favorites_list.column("text", width=310, stretch=True)
+        self.favorites_list.pack(side="left", fill="both", expand=True)
+        
+        fav_scroll = ttk.Scrollbar(self.favorites_hist_tab, orient="vertical", command=self.favorites_list.yview)
+        fav_scroll.pack(side="right", fill="y")
+        self.favorites_list.configure(yscrollcommand=fav_scroll.set)
         
         # Bindings
         self.image_history_list.bind("<<TreeviewSelect>>", lambda e: self.on_history_select(e, "image"))
         self.text_history_list.bind("<<TreeviewSelect>>", lambda e: self.on_history_select(e, "text"))
+        self.favorites_list.bind("<Double-1>", lambda e: self.on_apply_selected_favorite())
         self.image_history_list.bind("<Delete>", lambda e: self.on_delete_history())
         self.text_history_list.bind("<Delete>", lambda e: self.on_delete_history())
+        self.favorites_list.bind("<Delete>", lambda e: self.on_delete_selected_favorite())
+        self.image_history_list.bind("<Button-3>", lambda e: self.show_history_context_menu(e, "image"))
+        self.text_history_list.bind("<Button-3>", lambda e: self.show_history_context_menu(e, "text"))
+        self.favorites_list.bind("<Button-3>", self.show_favorites_context_menu)
         
         # Link Notebooks
         self.input_notebook.bind("<<NotebookTabChanged>>", self.on_input_tab_changed)
@@ -735,6 +842,7 @@ class PromptApp:
                             
                         chunk = chunk[first_tag_pos + len(first_tag_str):]
 
+                pose_override, expression_override = self._get_override_presets()
                 result, count = generate_prompt_logic(
                     prepared_data, mime, api_key, 
                     self.model_name, self.model_thinking_level, 
@@ -744,7 +852,10 @@ class PromptApp:
                     high_fidelity=self.high_fidelity_var.get(),
                     on_chunk=chunk_handler,
                     on_pass2_chunk=pass2_chunk_handler,
-                    cancel_check=lambda: self.cancel_requested
+                    cancel_check=lambda: self.cancel_requested,
+                    active_character_ids=self.get_active_character_ids(),
+                    pose_override=pose_override,
+                    expression_override=expression_override
                 )
                 
                 self.root.after(0, lambda: self.on_success(result, count))
@@ -825,6 +936,15 @@ class PromptApp:
             self.root.clipboard_clear()
             self.root.clipboard_append(text)
             self.status_var.set("KREA2 JSON (한국어)이 클립보드에 복사되었습니다.")
+
+    def on_reset_default_keyword(self):
+        self.keyword_text.delete("1.0", "end")
+        self.keyword_text.insert("1.0", DEFAULT_KEYWORD)
+        self.status_var.set("키워드가 기본값으로 복원되었습니다.")
+
+    def on_clear_keyword(self):
+        self.keyword_text.delete("1.0", "end")
+        self.status_var.set("키워드가 지워졌습니다.")
 
     def on_save_edits(self):
         if getattr(self, 'current_history_index', None) is None:
@@ -963,6 +1083,381 @@ class PromptApp:
             self.file_path_var.set("텍스트 분석 내역")
         
         self.status_var.set(f"{'이미지' if list_type == 'image' else '텍스트'} 히스토리 항목이 복원되었습니다.")
+    def show_history_context_menu(self, event, list_type):
+        listbox = self.image_history_list if list_type == "image" else self.text_history_list
+        item_id = listbox.identify_row(event.y)
+        if not item_id:
+            return
+            
+        listbox.selection_set(item_id)
+        
+        tags = listbox.item(item_id, "tags")
+        if not tags:
+            return
+        real_idx = int(tags[0])
+        if real_idx >= len(self.history):
+            return
+        entry = self.history[real_idx]
+        
+        menu = tk.Menu(self.root, tearoff=0)
+        
+        # 1. Full Prompt Favorite
+        menu.add_command(
+            label="⭐ 전체 프롬프트를 즐겨찾기에 추가", 
+            command=lambda: self.add_history_full_prompt_to_preset(real_idx)
+        )
+        menu.add_separator()
+        
+        # 2. Cascading Submenu for Attributes
+        attr_menu = tk.Menu(menu, tearoff=0)
+        attr_data = extract_all_attributes(entry)
+        attrs = attr_data["attributes"]
+        
+        category_labels = {
+            "expressions": "🎭 표정 (Expression)",
+            "poses": "🧍 포즈 (Pose)",
+            "Background_Lighting": "🌅 배경/조명 (Background/Lighting)",
+            "Person": "👤 인물 (Person)",
+            "Outfit": "👗 의상 (Outfit)",
+            "Camera": "📷 카메라 (Camera)",
+            "Mood_Color": "🎨 분위기/색상 (Mood/Color)",
+            "Style": "🖌️ 스타일 (Style)",
+            "Skin_Body_Condition": "✨ 피부/신체 (Skin & Body)",
+            "custom": "⚙️ 기타 JSON 속성"
+        }
+        
+        has_attr = False
+        for cat_key, cat_label in category_labels.items():
+            cat_vals = attrs.get(cat_key, {})
+            if cat_vals:
+                has_attr = True
+                for k, v in cat_vals.items():
+                    preview = (v[:32] + '...') if len(v) > 32 else v
+                    lbl = f"{cat_label}: {preview}"
+                    attr_menu.add_command(
+                        label=lbl,
+                        command=lambda ck=cat_key, ak=k, val=v: self.add_attribute_to_preset(ck, ak, val)
+                    )
+        
+        if has_attr:
+            menu.add_cascade(label="⭐ 속성별 즐겨찾기에 추가 ▶", menu=attr_menu)
+        
+        # Direct quick access buttons for common ones
+        menu.add_command(label="선택한 표정을 즐겨찾기에 추가", command=lambda: self.add_history_to_preset("expression", list_type))
+        menu.add_command(label="선택한 포즈를 즐겨찾기에 추가", command=lambda: self.add_history_to_preset("pose", list_type))
+        menu.add_command(label="선택한 배경/조명을 즐겨찾기에 추가", command=lambda: self.add_history_to_preset("Background_Lighting", list_type))
+        menu.add_command(label="선택한 의상을 즐겨찾기에 추가", command=lambda: self.add_history_to_preset("Outfit", list_type))
+        menu.add_command(label="선택한 카메라를 즐겨찾기에 추가", command=lambda: self.add_history_to_preset("Camera", list_type))
+        menu.add_command(label="선택한 스타일을 즐겨찾기에 추가", command=lambda: self.add_history_to_preset("Style", list_type))
+        
+        # JSON Detail dialog
+        menu.add_command(label="🔍 JSON 전체 속성 탐색 및 즐겨찾기...", command=lambda: self.open_json_attribute_dialog(entry))
+        
+        menu.add_separator()
+        menu.add_command(label="영문 프롬프트 복사", command=lambda: self._copy_text(entry.get("en", "")))
+        menu.add_command(label="한글 번역 복사", command=lambda: self._copy_text(entry.get("ko", "")))
+        menu.add_command(label="KREA2 JSON 복사", command=lambda: self._copy_text(entry.get("json", "")))
+        menu.add_separator()
+        menu.add_command(label="히스토리 항목 삭제", command=self.on_delete_history)
+        
+        menu.post(event.x_root, event.y_root)
+
+    def add_history_to_preset(self, category, list_type="image"):
+        listbox = self.image_history_list if list_type == "image" else self.text_history_list
+        selected = listbox.selection()
+        if not selected:
+            return
+            
+        item_id = selected[0]
+        tags = listbox.item(item_id, "tags")
+        if not tags:
+            return
+            
+        real_idx = int(tags[0])
+        if real_idx >= len(self.history):
+            return
+            
+        entry = self.history[real_idx]
+        
+        if category == "prompts":
+            self.add_history_full_prompt_to_preset(real_idx)
+            return
+
+        attr_data = extract_all_attributes(entry)
+        attrs = attr_data["attributes"]
+        
+        cat_key_map = {
+            "expression": "expressions",
+            "expressions": "expressions",
+            "pose": "poses",
+            "poses": "poses",
+            "Background_Lighting": "Background_Lighting",
+            "Person": "Person",
+            "Outfit": "Outfit",
+            "Camera": "Camera",
+            "Mood_Color": "Mood_Color",
+            "Style": "Style",
+            "Skin_Body_Condition": "Skin_Body_Condition"
+        }
+        
+        target_cat = cat_key_map.get(category, category)
+        val = ""
+        if attrs.get(target_cat):
+            val = list(attrs[target_cat].values())[0]
+        elif target_cat == "expressions" and attrs.get("Character_Expressions"):
+            val = list(attrs["Character_Expressions"].values())[0]
+        elif target_cat == "poses" and attrs.get("Pose"):
+            val = list(attrs["Pose"].values())[0]
+            
+        if not val or not val.strip():
+            cat_name = CATEGORY_KOREAN_NAMES.get(target_cat, target_cat)
+            messagebox.showwarning("경고", f"선택한 히스토리 항목에서 {cat_name} 정보를 추출할 수 없습니다.", parent=self.root)
+            return
+            
+        cat_title = CATEGORY_KOREAN_NAMES.get(target_cat, target_cat)
+        default_name = val[:30] + "..." if len(val) > 30 else val
+        name = simpledialog.askstring(f"{cat_title} 즐겨찾기 추가", "즐겨찾기 이름을 입력하세요:", initialvalue=default_name, parent=self.root)
+        if name is not None:
+            name = name.strip()
+            if not name:
+                name = default_name
+                
+            if add_attribute_preset(target_cat, name, val):
+                self.refresh_presets_combos()
+                self.refresh_remix_options()
+                self.refresh_favorites_tab()
+                self.status_var.set(f"'{name}'이(가) {cat_title} 즐겨찾기에 추가되었습니다.")
+                messagebox.showinfo("완료", f"'{name}'이(가) 즐겨찾기에 추가되었습니다.", parent=self.root)
+            else:
+                messagebox.showerror("오류", "즐겨찾기 저장에 실패했습니다.", parent=self.root)
+
+    def add_history_full_prompt_to_preset(self, real_idx):
+        if real_idx >= len(self.history):
+            return
+        entry = self.history[real_idx]
+        en_text = entry.get("en", "").strip()
+        if not en_text:
+            messagebox.showwarning("경고", "프롬프트 내용이 없습니다.", parent=self.root)
+            return
+            
+        default_name = en_text.split("\n")[0][:30] if en_text else "즐겨찾기 프롬프트"
+        name = simpledialog.askstring("전체 프롬프트 즐겨찾기 추가", "즐겨찾기 이름을 입력하세요:", initialvalue=default_name, parent=self.root)
+        if name is not None:
+            name = name.strip()
+            if not name:
+                name = default_name
+            if add_prompt_preset(name, entry):
+                self.refresh_favorites_tab()
+                self.status_var.set(f"전체 프롬프트 '{name}'이(가) 즐겨찾기에 저장되었습니다.")
+                messagebox.showinfo("완료", f"전체 프롬프트 '{name}'이(가) 즐겨찾기에 추가되었습니다.", parent=self.root)
+            else:
+                messagebox.showerror("오류", "즐겨찾기 저장에 실패했습니다.", parent=self.root)
+
+    def add_attribute_to_preset(self, category, attr_key, val):
+        if not val or not val.strip():
+            return
+        cat_title = CATEGORY_KOREAN_NAMES.get(category, category)
+        default_name = val[:30] + "..." if len(val) > 30 else val
+        name = simpledialog.askstring("속성 즐겨찾기 추가", f"'{attr_key}' 속성의 즐겨찾기 이름을 입력하세요:", initialvalue=default_name, parent=self.root)
+        if name is not None:
+            name = name.strip()
+            if not name:
+                name = default_name
+            if add_attribute_preset(category, name, val):
+                self.refresh_presets_combos()
+                self.refresh_remix_options()
+                self.refresh_favorites_tab()
+                self.status_var.set(f"'{name}'이(가) {cat_title} 즐겨찾기에 추가되었습니다.")
+                messagebox.showinfo("완료", f"'{name}'이(가) 즐겨찾기에 추가되었습니다.", parent=self.root)
+            else:
+                messagebox.showerror("오류", "즐겨찾기 저장에 실패했습니다.", parent=self.root)
+
+    def open_json_attribute_dialog(self, entry=None):
+        if entry is None:
+            entry = {
+                "en": self.output_text.get("1.0", "end-1c").strip(),
+                "ko": self.translation_text.get("1.0", "end-1c").strip(),
+                "zh": self.translation_zh_text.get("1.0", "end-1c").strip(),
+                "json": self.json_output_text.get("1.0", "end-1c").strip(),
+                "json_ko": self.json_ko_output_text.get("1.0", "end-1c").strip(),
+                "keyword": self.keyword_text.get("1.0", "end-1c").strip() if hasattr(self, "keyword_text") else ""
+            }
+        JsonAttributeFavoriteDialog(self, entry)
+
+    def open_preset_manager(self):
+        PresetManagerDialog(self)
+
+    def on_favorite_current_prompt(self):
+        entry = {
+            "en": self.output_text.get("1.0", "end-1c").strip(),
+            "ko": self.translation_text.get("1.0", "end-1c").strip(),
+            "zh": self.translation_zh_text.get("1.0", "end-1c").strip(),
+            "json": self.json_output_text.get("1.0", "end-1c").strip(),
+            "json_ko": self.json_ko_output_text.get("1.0", "end-1c").strip(),
+            "keyword": self.keyword_text.get("1.0", "end-1c").strip() if hasattr(self, "keyword_text") else "",
+            "image_path": getattr(self, "current_image_rel_path", "")
+        }
+        if not entry["en"]:
+            messagebox.showwarning("알림", "즐겨찾기에 등록할 생성 결과 프롬프트가 없습니다.")
+            return
+            
+        default_name = entry["en"].split("\n")[0][:30]
+        name = simpledialog.askstring("전체 프롬프트 즐겨찾기", "즐겨찾기 이름을 입력하세요:", initialvalue=default_name, parent=self.root)
+        if name is not None:
+            name = name.strip()
+            if not name:
+                name = default_name
+            if add_prompt_preset(name, entry):
+                self.refresh_favorites_tab()
+                self.status_var.set(f"전체 프롬프트 '{name}'이(가) 즐겨찾기에 등록되었습니다.")
+                messagebox.showinfo("완료", f"전체 프롬프트 '{name}'이(가) 즐겨찾기에 추가되었습니다.")
+            else:
+                messagebox.showerror("오류", "즐겨찾기 저장에 실패했습니다.")
+
+    def on_favorite_current_json_attributes(self):
+        entry = {
+            "en": self.output_text.get("1.0", "end-1c").strip(),
+            "ko": self.translation_text.get("1.0", "end-1c").strip(),
+            "zh": self.translation_zh_text.get("1.0", "end-1c").strip(),
+            "json": self.json_output_text.get("1.0", "end-1c").strip(),
+            "json_ko": self.json_ko_output_text.get("1.0", "end-1c").strip()
+        }
+        if not entry["json"] and not entry["en"]:
+            messagebox.showwarning("알림", "즐겨찾기에 등록할 JSON 또는 프롬프트 결과가 없습니다.")
+            return
+        self.open_json_attribute_dialog(entry)
+
+    def refresh_favorites_tab(self):
+        if not hasattr(self, "favorites_list"):
+            return
+        for it in self.favorites_list.get_children():
+            self.favorites_list.delete(it)
+            
+        presets = load_presets()
+        selected_cat = self.fav_tab_cat_var.get() if hasattr(self, "fav_tab_cat_var") else "(전체)"
+        
+        cat_map = {
+            "전체 프롬프트": "prompts",
+            "표정": "expressions",
+            "포즈": "poses",
+            "배경/조명": "Background_Lighting",
+            "인물": "Person",
+            "의상": "Outfit",
+            "카메라": "Camera",
+            "분위기/색상": "Mood_Color",
+            "스타일": "Style",
+            "기타 속성": "custom"
+        }
+        filter_key = cat_map.get(selected_cat, None)
+        
+        for cat_key, items in presets.items():
+            if filter_key and cat_key != filter_key:
+                continue
+            if not isinstance(items, dict):
+                continue
+            cat_label = CATEGORY_KOREAN_NAMES.get(cat_key, cat_key)
+            for name, val in sorted(items.items()):
+                if cat_key == "prompts" and isinstance(val, dict):
+                    preview = val.get("en", "")[:100].replace("\n", " ")
+                else:
+                    preview = str(val)[:100].replace("\n", " ")
+                self.favorites_list.insert("", "end", values=(cat_label, name, preview), tags=(cat_key, name))
+
+    def on_apply_selected_favorite(self):
+        sel = self.favorites_list.selection()
+        if not sel:
+            messagebox.showwarning("알림", "적용할 즐겨찾기 항목을 선택하세요.")
+            return
+        tags = self.favorites_list.item(sel[0], "tags")
+        if not tags or len(tags) < 2:
+            return
+        cat_key, name = tags[0], tags[1]
+        presets = load_presets()
+        val = presets.get(cat_key, {}).get(name)
+        if not val:
+            return
+            
+        if cat_key == "prompts" and isinstance(val, dict):
+            self.output_text.delete("1.0", "end")
+            self.output_text.insert("1.0", val.get("en", ""))
+            self.translation_text.delete("1.0", "end")
+            self.translation_text.insert("1.0", val.get("ko", ""))
+            self.translation_zh_text.delete("1.0", "end")
+            self.translation_zh_text.insert("1.0", val.get("zh", ""))
+            self.json_output_text.delete("1.0", "end")
+            self.json_output_text.insert("1.0", val.get("json", ""))
+            self.json_ko_output_text.delete("1.0", "end")
+            self.json_ko_output_text.insert("1.0", val.get("json_ko", ""))
+            if hasattr(self, "keyword_text") and val.get("keyword"):
+                self.keyword_text.delete("1.0", "end")
+                self.keyword_text.insert("1.0", val.get("keyword"))
+            image_rel_path = val.get("image_path")
+            if image_rel_path:
+                from ..core.config import BASE_DIR
+                full_path = BASE_DIR / image_rel_path
+                if full_path.exists():
+                    self.set_image_source({"type": "file", "value": str(full_path)})
+            self.status_var.set(f"즐겨찾기 전체 프롬프트 '{name}'을(를) 불러왔습니다.")
+        else:
+            val_str = str(val)
+            if cat_key in ["expressions", "Character_Expressions"]:
+                self.preset_expression_var.set(name)
+            elif cat_key in ["poses", "Pose"]:
+                self.preset_pose_var.set(name)
+            elif hasattr(self.app, "remix_combos") and cat_key in self.app.remix_combos:
+                self.remix_combos[cat_key].set(val_str)
+                self.input_notebook.select(self.remix_tab)
+            self.root.clipboard_clear()
+            self.root.clipboard_append(val_str)
+            self.status_var.set(f"즐겨찾기 '{name}' 적용 및 복사 완료")
+
+    def on_delete_selected_favorite(self):
+        sel = self.favorites_list.selection()
+        if not sel:
+            return
+        tags = self.favorites_list.item(sel[0], "tags")
+        if not tags or len(tags) < 2:
+            return
+        cat_key, name = tags[0], tags[1]
+        if messagebox.askyesno("삭제 확인", f"'{name}' 즐겨찾기를 삭제하시겠습니까?"):
+            delete_preset(cat_key, name)
+            self.refresh_favorites_tab()
+            self.refresh_presets_combos()
+            self.refresh_remix_options()
+            self.status_var.set(f"'{name}' 즐겨찾기가 삭제되었습니다.")
+
+    def show_favorites_context_menu(self, event):
+        item_id = self.favorites_list.identify_row(event.y)
+        if not item_id:
+            return
+        self.favorites_list.selection_set(item_id)
+        
+        tags = self.favorites_list.item(item_id, "tags")
+        if not tags or len(tags) < 2:
+            return
+        cat_key, name = tags[0], tags[1]
+        
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="적용 / 불러오기", command=self.on_apply_selected_favorite)
+        menu.add_command(label="클립보드 복사", command=lambda: self._copy_favorite_val(cat_key, name))
+        menu.add_separator()
+        menu.add_command(label="즐겨찾기에서 삭제", command=self.on_delete_selected_favorite)
+        menu.post(event.x_root, event.y_root)
+
+    def _copy_favorite_val(self, cat_key, name):
+        presets = load_presets()
+        val = presets.get(cat_key, {}).get(name)
+        if not val: return
+        text = val.get("en", "") if (cat_key == "prompts" and isinstance(val, dict)) else str(val)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        self.status_var.set(f"'{name}' 내용이 클립보드에 복사되었습니다.")
+
+    def _copy_text(self, text):
+        if text:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            self.status_var.set("클립보드에 복사되었습니다.")
 
     def on_delete_history(self):
         active_tab = self.history_notebook.index("current")
@@ -1301,6 +1796,9 @@ class PromptApp:
             
         try:
             curr_idx = self.history_notebook.index("current")
+            if curr_idx == 2:
+                self.refresh_favorites_tab()
+                return
             input_idx = self.input_notebook.index("current")
             if curr_idx == 1 and input_idx >= 1:
                 return
@@ -1418,6 +1916,7 @@ class PromptApp:
                 
                 model_name = self.model_var.get()
                 thinking_level = self.thinking_level_var.get() if hasattr(self, "thinking_level_var") else None
+                pose_override, expression_override = self._get_override_presets()
                 result, count = generate_prompt_augmentation_logic(
                     text_input=text_content,
                     api_key=api_key,
@@ -1427,7 +1926,9 @@ class PromptApp:
                     on_chunk=chunk_handler,
                     on_pass2_chunk=pass2_chunk_handler,
                     cancel_check=lambda: self.cancel_requested,
-                    active_character_ids=self.get_active_character_ids()
+                    active_character_ids=self.get_active_character_ids(),
+                    pose_override=pose_override,
+                    expression_override=expression_override
                 )
                 
                 result["input_text"] = text_content
@@ -1535,6 +2036,7 @@ class PromptApp:
                             
                         chunk = chunk[first_tag_pos + len(first_tag_str):]
                 
+                pose_override, expression_override = self._get_override_presets()
                 result, count = generate_from_text_logic(
                     text_content, api_key,
                     self.model_name, self.model_thinking_level,
@@ -1542,7 +2044,9 @@ class PromptApp:
                     on_chunk=chunk_handler,
                     on_pass2_chunk=pass2_chunk_handler,
                     cancel_check=lambda: self.cancel_requested,
-                    active_character_ids=self.get_active_character_ids()
+                    active_character_ids=self.get_active_character_ids(),
+                    pose_override=pose_override,
+                    expression_override=expression_override
                 )
                 
                 # Store original text in result
@@ -1627,65 +2131,103 @@ class PromptApp:
     def refresh_remix_options(self):
         import json
         history_file = Path("history.txt")
-        if not history_file.exists():
-            return
-            
         options = {attr: set() for attr in self.remix_attributes}
         
+        # Load presets for all attributes
+        presets = load_presets()
+        attr_favs = {}
+        for attr in self.remix_attributes:
+            fav_set = set()
+            if attr in presets and isinstance(presets[attr], dict):
+                fav_set.update(presets[attr].values())
+            if attr == "Character_Expressions" and "expressions" in presets:
+                fav_set.update(presets["expressions"].values())
+            elif attr == "Pose" and "poses" in presets:
+                fav_set.update(presets["poses"].values())
+            attr_favs[attr] = fav_set
+        
+        if history_file.exists():
+            try:
+                with open(history_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        if not line.strip(): continue
+                        try:
+                            data = json.loads(line)
+                            json_out = data.get("json", "")
+                            if json_out:
+                                try:
+                                    parsed = json.loads(json_out)
+                                    for cat in ["scene_metadata", "characters", "environment_and_props", "photography_and_framing", "lighting_and_color", "dynamism_and_texture"]:
+                                        if cat in parsed:
+                                            val = parsed[cat]
+                                            if isinstance(val, dict):
+                                                for sub_k, sub_v in val.items():
+                                                    if isinstance(sub_v, str) and sub_v:
+                                                        if "light" in sub_k or "color" in sub_k:
+                                                            options["Background_Lighting"].add(sub_v)
+                                                        if "camera" in sub_k or "lens" in sub_k:
+                                                            options["Camera"].add(sub_v)
+                                            elif isinstance(val, list) and cat == "characters":
+                                                for char_obj in val:
+                                                    if isinstance(char_obj, dict):
+                                                        pose = char_obj.get("individual_pose")
+                                                        if pose:
+                                                            options["Pose"].add(pose)
+                                                        outfit = char_obj.get("outfit")
+                                                        if isinstance(outfit, dict):
+                                                            top = outfit.get("top")
+                                                            if top:
+                                                                options["Outfit"].add(top)
+                                                        expr = char_obj.get("facial_expression")
+                                                        if expr:
+                                                            options["Character_Expressions"].add(expr)
+                                except:
+                                    pass
+                            
+                            en_text = data.get("en", "")
+                            for ln in en_text.split('\n'):
+                                if ':' in ln:
+                                    parts = ln.split(':', 1)
+                                    key = parts[0].strip().replace("/", "_").replace(" ", "_")
+                                    val = parts[1].strip()
+                                    if key in options and val:
+                                        options[key].add(val)
+                        except:
+                            pass
+            except Exception as e:
+                print(f"Error reading history for remix: {e}")
+                
+        # Format values based on 'Favorites Only' checkbox
+        favorites_only = getattr(self, "remix_fav_only_var", None) and self.remix_fav_only_var.get()
+        
         try:
-            with open(history_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if not line.strip(): continue
-                    try:
-                        data = json.loads(line)
-                        json_out = data.get("json", "")
-                        if json_out:
-                            try:
-                                parsed = json.loads(json_out)
-                                for cat in ["scene_metadata", "characters", "environment_and_props", "photography_and_framing", "lighting_and_color", "dynamism_and_texture"]:
-                                    if cat in parsed:
-                                        val = parsed[cat]
-                                        if isinstance(val, dict):
-                                            for sub_k, sub_v in val.items():
-                                                if isinstance(sub_v, str) and sub_v:
-                                                    if "light" in sub_k or "color" in sub_k:
-                                                        options["Background_Lighting"].add(sub_v)
-                                                    if "camera" in sub_k or "lens" in sub_k:
-                                                        options["Camera"].add(sub_v)
-                                        elif isinstance(val, list) and cat == "characters":
-                                            for char_obj in val:
-                                                if isinstance(char_obj, dict):
-                                                    pose = char_obj.get("individual_pose")
-                                                    if pose:
-                                                        options["Pose"].add(pose)
-                                                    outfit = char_obj.get("outfit")
-                                                    if isinstance(outfit, dict):
-                                                        top = outfit.get("top")
-                                                        if top:
-                                                            options["Outfit"].add(top)
-                                                    expr = char_obj.get("facial_expression")
-                                                    if expr:
-                                                        options["Character_Expressions"].add(expr)
-                            except:
-                                pass
-                        
-                        en_text = data.get("en", "")
-                        for ln in en_text.split('\n'):
-                            if ':' in ln:
-                                parts = ln.split(':', 1)
-                                key = parts[0].strip().replace("/", "_")
-                                val = parts[1].strip()
-                                if key in options and val:
-                                    options[key].add(val)
-                    except:
-                        pass
-                        
             for attr in self.remix_attributes:
-                vals = [""] + sorted(list(options[attr]))
+                favs = attr_favs.get(attr, set())
+                if favorites_only:
+                    vals = [""] + sorted(list(favs))
+                else:
+                    # Show all, prioritizing favorites with '★ '
+                    star_opts = []
+                    regular_opts = []
+                    for val in options[attr]:
+                        if val.startswith("★ "):
+                            val = val[2:]
+                        if val in favs:
+                            star_opts.append(f"★ {val}")
+                        else:
+                            regular_opts.append(val)
+                            
+                    # Add any presets not yet present in history
+                    for val in favs:
+                        if f"★ {val}" not in star_opts:
+                            star_opts.append(f"★ {val}")
+                                
+                    vals = [""] + sorted(star_opts) + sorted(regular_opts)
+                    
                 if attr in self.remix_combos:
                     self.remix_combos[attr]['values'] = vals
         except Exception as e:
-            print(f"Error refreshing remix options: {e}")
+            print(f"Error sorting remix options: {e}")
 
     def on_generate_remix(self):
         if self.generation_in_progress:
@@ -1702,6 +2244,9 @@ class PromptApp:
         for attr in self.remix_attributes:
             val = self.remix_combos[attr].get().strip()
             if val:
+                # Strip ★ prefix if present
+                if val.startswith("★ "):
+                    val = val[2:]
                 assembled_parts.append(f"{attr.replace('_', '/')}: {val}")
                 
         if not assembled_parts:

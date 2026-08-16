@@ -55,7 +55,7 @@ def get_character_prompt_context(active_character_ids=None):
         return ""
         
     context = "[Character Profiles Context]\n"
-    context += "The following established characters may appear in the text. Use these physical and personality traits to ensure consistency:\n\n"
+    context += "The following established characters may appear in the scene (image or text). Use these physical and personality traits to ensure consistency:\n\n"
     
     for c in characters:
         name = c.get("name", "Unknown")
