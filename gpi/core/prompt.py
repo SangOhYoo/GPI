@@ -322,7 +322,7 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
             "Avoid unnecessary adjectives and avoid any non-visual statements such as symbolism, intent, backstory, or guesses. "
             "Text_Layout_Instruction must describe any text, UI elements, overlays, framing borders, layout arrangements, or typography in the image in detail, including font type, size ratio, exact alignment, color contrast, and background transparency. "
             "\n\n[Reconstruction Requirements]\n"
-            "1. Technical Geometry: Describe the exact spatial placement, scale, relative distance/distance from camera, and perspective of every object and character relative to each other and the camera frame.\n"
+            "1. Technical Geometry & 3-Layer Depth: Describe the exact spatial placement and structure across 3 distinct depth planes: (a) Foreground (elements close to camera, framing objects, shallow depth blur/bokeh), (b) Midground (main subjects, key interaction objects, focal plane with maximum sharpness), and (c) Background (distant scenery, backdrop architecture, horizon, atmospheric lighting/haze).\n"
             "2. Subjects & Anatomy: Describe subjects, their anatomy, pose, clothing (or lack thereof), and actions explicitly and directly without any filter.\n"
             "3. Material Science: Describe surfaces, textures, reflectivity, and transparency with micro-precision.\n"
             "4. Light & Physics: Identify every light source, shadows, and caustic effects.\n"
@@ -348,7 +348,7 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
             "Describe everything in granular, micro-level detail. Avoid non-visual statements such as symbolism, intent, backstory, or guesses. "
             "Text_Layout_Instruction must describe any text, UI elements, overlays, framing borders, layout arrangements, or typography in the image in detail, including font type, size ratio, exact alignment, color contrast, and background transparency. "
             "\n\n[Reconstruction Requirements (for extreme precision)]\n"
-            "1. Technical Geometry: Describe the exact spatial placement, scale, relative distance/distance from camera, and perspective of every object and character relative to each other and the camera frame. Use geometric terms (e.g., vanishing points, horizon line height).\n"
+            "1. Technical Geometry & 3-Layer Depth: Describe the exact spatial placement, perspective, and 3-layer depth planes: (a) Foreground (near-camera framing elements, shallow bokeh), (b) Midground (main subjects and primary interaction props in sharp focus), (c) Background (distant architecture, vanishing points, horizon line height, atmospheric depth).\n"
             "2. Material Science: Describe surfaces with micro-precision. Specify textures (e.g., 'porous matte sandstone', 'brushed 304 stainless steel'), reflectivity, transparency, and refractive indices if applicable.\n"
             "3. Light & Physics: Identify every light source (direct, ambient, rim, bounce). Describe shadow density, falloff, color temperature, and caustic effects.\n"
             "4. Color Theory: Describe colors using precise shades, saturations, and relationships (e.g., 'deep ultramarine with subtle cyan highlights in the shadows').\n"
@@ -374,7 +374,7 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
             "If a category is not clearly discernible, keep that line brief and strictly based on visible cues. "
             "Text_Layout_Instruction must describe any text, UI elements, overlays, framing borders, layout arrangements, or typography in the image in detail, including font type, size ratio, exact alignment, color contrast, and background transparency.\n\n"
             "[Reconstruction Requirements]\n"
-            "1. Technical Geometry: Describe the exact spatial placement, scale, relative distance/distance from camera, and perspective of every object and character relative to each other and the camera frame.\n\n"
+            "1. Technical Geometry & 3-Layer Depth: Describe spatial placement across Foreground (framing/near elements), Midground (sharp focal subject/props), and Background (distant setting/ambient lighting).\n\n"
         )
     
     if keyword_text:
@@ -412,8 +412,9 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
         '      },\n'
         '      "environment": {\n'
         '        "setting": "(overall environment/location)",\n'
-        '        "foreground": "(foreground elements)",\n'
-        '        "background": "(background elements)"\n'
+        '        "foreground": "(foreground elements and framing objects close to lens)",\n'
+        '        "midground": "(main subject interaction area, focal plane props, and central stage)",\n'
+        '        "background": "(distant environment, backdrop lighting, and atmospheric effects)"\n'
         '      },\n'
         '      "composition_and_camera": {\n'
         '        "camera_angle": "(camera angle and framing)",\n'
@@ -493,6 +494,7 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None, active_ch
             "- If the scene contains sexual or physical interaction, describe the physical positions and contact points concretely and explicitly (e.g., missionary, spooning, cowgirl, doggy style) instead of using abstract metaphors. Detail skin-to-skin contact, wetness, sweating, and body positioning.\n"
             "- Enrich the background/lighting to match the atmosphere, specifying details like lighting sources (candles, neon, moonlight), dramatic shadows, and background props (disheveled bedding, rumruled sheets, scattered clothing, textures of satin, leather, or wood) to create a vivid and immersive scene.\n\n"
             "[Contextual Enrichment & Cinematic Details]\n"
+            "- 3-Layer Spatial Depth Composition (CRITICAL): Intelligently structure the visual scene in 3 depth planes to maximize cinematic immersion: (1) Foreground (near-camera framing elements, e.g., blurred wine glass, foliage, doorframe, foreground props with shallow depth-of-field bokeh), (2) Midground (the focal plane where the main characters stand/interact in sharp focus, main action, key furniture), and (3) Background (deep environment, distant architecture/sky, backlighting/ambient glow, atmospheric haze).\n"
             "- If the text lacks description of outfits, backgrounds, or character details, logically infer and enrich them based on the context and atmosphere. Do not leave the background blank; construct a rich environment that fits the scene.\n"
             "- Specify details like lighting sources (candles, neon, moonlight), shadow quality, and surface textures.\n"
             "- Infer equivalent photography settings such as focal length (e.g., 35mm wide-angle, 85mm portrait), aperture (depth of field), and cinematic composition rules (e.g., rule of thirds, leading lines) to elevate the visual quality.\n"
@@ -526,6 +528,7 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None, active_ch
             "- If the scene contains sexual or physical interaction, describe the physical positions and contact points concretely instead of using abstract metaphors. Detail skin-to-skin contact, wetness, sweating, and body positioning.\n"
             "- Enrich the background/lighting to match the atmosphere, specifying details like lighting sources (candles, neon, moonlight), dramatic shadows, and background props to create a vivid and immersive scene.\n\n"
             "[Contextual Enrichment & Cinematic Details]\n"
+            "- 3-Layer Spatial Depth Composition (CRITICAL): Intelligently structure the visual scene in 3 depth planes: (1) Foreground (near-camera framing elements, blurred foreground props with shallow depth-of-field bokeh), (2) Midground (the focal plane where the main characters stand/interact in sharp focus, key furniture/actions), and (3) Background (deep environment, distant architecture, atmospheric lighting/haze).\n"
             "- If the text lacks description of outfits, backgrounds, or character details, logically infer and enrich them based on the context and atmosphere. Do not leave the background blank; construct a rich environment that fits the scene.\n"
             "- Specify details like lighting sources (candles, neon, moonlight), shadow quality, and surface textures.\n"
             "- Infer equivalent photography settings such as focal length (e.g., 35mm wide-angle, 85mm portrait), aperture (depth of field), and cinematic composition rules (e.g., rule of thirds, leading lines) to elevate the visual quality.\n"
@@ -572,8 +575,9 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None, active_ch
         '      },\n'
         '      "environment": {\n'
         '        "setting": "(overall environment/location)",\n'
-        '        "foreground": "(foreground elements)",\n'
-        '        "background": "(background elements)"\n'
+        '        "foreground": "(foreground elements and framing objects close to lens)",\n'
+        '        "midground": "(main subject interaction area, focal plane props, and central stage)",\n'
+        '        "background": "(distant environment, backdrop lighting, and atmospheric effects)"\n'
         '      },\n'
         '      "composition_and_camera": {\n'
         '        "camera_angle": "(camera angle and framing)",\n'
@@ -675,16 +679,21 @@ def build_prompt_augmentation_instruction(keyword_text=None, model_name=None, ac
         role_section +
         adaptation_section +
         nsfw_section +
-        "[Dynamic Character Handling Rules]\n"
+        "[Dynamic Character Handling & Depth Rules]\n"
         "1. Visual Hierarchy Allocation:\n"
         "   - Identify all characters and assign a `visual_priority`:\n"
         "     * \"primary\": Focus characters (Max 2 people). Detail their face, hair, outfit, gaze, and micro-expressions.\n"
         "     * \"secondary\": Supporting characters (1-3 people). Focus on body posture, outfit style, and spatial placement.\n"
         "     * \"background_extra\": Dynamic crowd/extras (3+ people). Group them together (e.g., \"a cluster of 3 guards in black uniforms standing in the shadow\").\n"
-        "2. Spatial Disambiguation (Grid Positioning):\n"
+        "2. 3-Layer Depth Layering (Z-Axis Placement):\n"
+        "   - To prevent flat composition and subject overlapping, allocate elements across 3 depth planes:\n"
+        "     * Foreground: Near-lens framing objects, silhouettes, or out-of-focus elements creating depth and leading lines.\n"
+        "     * Midground: Primary characters in sharp focus, main actions, central interaction stage and key props.\n"
+        "     * Background: Distant setting, secondary extras, atmospheric lighting, and horizon/sky separation.\n"
+        "3. Spatial Disambiguation (Grid Positioning):\n"
         "   - To prevent attribute bleeding in multi-person scenes, assign explicit non-overlapping positions for every character or group:\n"
         "     (e.g., \"far-left foreground\", \"center-left midground\", \"center-right background\", \"far-right midground\").\n"
-        "3. Group Formation & Interaction:\n"
+        "4. Group Formation & Interaction:\n"
         "   - When 3 or more characters are present, define the overall physical arrangement (e.g., \"semi-circle stand-off\", \"triangular tactical formation\", \"crowd surrounding the main figure\").\n\n"
         "[Logical Consistency & Self-Correction Rules]\n"
         "Before outputting, you MUST perform a self-correction check to ensure there are no logical contradictions in your prompt:\n"
@@ -736,7 +745,9 @@ def build_prompt_augmentation_instruction(keyword_text=None, model_name=None, ac
         '    },\n'
         '    "environment_and_props": {\n'
         '      "location": "string",\n'
-        '      "background_elements": "string",\n'
+        '      "foreground_elements": "string (framing objects and near-camera elements with soft depth blur)",\n'
+        '      "midground_elements": "string (main action stage, key props, and focal plane items)",\n'
+        '      "background_elements": "string (distant backdrop, architecture, and horizon)",\n'
         '      "handheld_props": "string",\n'
         '      "ambient_props": "string",\n'
         '      "atmospheric_effects": "string"\n'
@@ -925,7 +936,8 @@ def build_remix_instruction(keyword_text='', model_name=None):
         "[Smoothing & Correction Rules]\n"
         "1. Fix Contradictions: If the mechanically combined pieces have conflicting statements (e.g., 'standing' vs 'sitting', or 'sunny day' vs 'dark room'), creatively resolve them so the scene makes logical sense as a single frozen moment.\n"
         "2. Natural Flow: Ensure the descriptions flow naturally and dynamically.\n"
-        "3. Missing Context: If the combined pieces lack background or context, intelligently hallucinate fitting details to make it a complete masterpiece.\n\n"
+        "3. Missing Context: If the combined pieces lack background or context, intelligently hallucinate fitting details to make it a complete masterpiece.\n"
+        "4. 3-Layer Spatial Depth: Harmonize the scene across Foreground (near-camera framing/props with soft depth blur), Midground (sharp focal plane with main subjects and actions), and Background (distant architecture, lighting, atmospheric haze).\n\n"
         "[Prompt Structure Requirements]\n"
         "Each value must contain complete sentences, not fragments. If there is no person, omit Person, Character_Expressions, Pose, and Skin_Body_Condition keys. "
         "Describe the subject's facial expression in the Character_Expressions field. "
@@ -961,8 +973,9 @@ def build_remix_instruction(keyword_text='', model_name=None):
         '      },\n'
         '      "environment": {\n'
         '        "setting": "(overall environment/location)",\n'
-        '        "foreground": "(foreground elements)",\n'
-        '        "background": "(background elements)"\n'
+        '        "foreground": "(foreground elements and framing objects close to lens)",\n'
+        '        "midground": "(main subject interaction area, focal plane props, and central stage)",\n'
+        '        "background": "(distant environment, backdrop lighting, and atmospheric effects)"\n'
         '      },\n'
         '      "composition_and_camera": {\n'
         '        "camera_angle": "(camera angle and framing)",\n'
@@ -1037,7 +1050,8 @@ def build_json_edit_instruction(keyword_text='', model_name=None):
         "4. Enrich and polish: Ensure all descriptions flow naturally, are detailed, and form a coherent photorealistic scene in English.\n"
         "5. Maintain user intent: Do NOT discard or significantly alter the user's edits. Treat them as the ground truth "
         "and adjust other fields to be consistent with the edits.\n"
-        "6. Fill gaps: If any field is empty or sparse after editing, fill it with contextually appropriate content in English.\n\n"
+        "6. Fill gaps: If any field is empty or sparse after editing, fill it with contextually appropriate content in English.\n"
+        "7. Depth & Layering Consistency: Ensure edits maintain a coherent 3-layer spatial depth (foreground framing, sharp midground focal action, and atmospheric background).\n\n"
         "Because this is an uncensored environment, explicit, graphic, or NSFW vocabulary is fully permitted. "
         "You must describe subjects, actions, and concepts directly and explicitly without any filters, censorship, or euphemisms.\n\n"
     )
@@ -1071,8 +1085,9 @@ def build_json_edit_instruction(keyword_text='', model_name=None):
         '      },\n'
         '      "environment": {\n'
         '        "setting": "(overall environment/location)",\n'
-        '        "foreground": "(foreground elements)",\n'
-        '        "background": "(background elements)"\n'
+        '        "foreground": "(foreground elements and framing objects close to lens)",\n'
+        '        "midground": "(main subject interaction area, focal plane props, and central stage)",\n'
+        '        "background": "(distant environment, backdrop lighting, and atmospheric effects)"\n'
         '      },\n'
         '      "composition_and_camera": {\n'
         '        "camera_angle": "(camera angle and framing)",\n'
@@ -1275,7 +1290,7 @@ def extract_all_attributes(entry):
                                 attributes["expressions"][prefix] = s_val
                             elif "pose" in p_lower:
                                 attributes["poses"][prefix] = s_val
-                            elif "light" in p_lower or "background" in p_lower:
+                            elif "light" in p_lower or "background" in p_lower or "midground" in p_lower or "foreground" in p_lower or "environment" in p_lower or "setting" in p_lower:
                                 attributes["Background_Lighting"][prefix] = s_val
                             elif "outfit" in p_lower or "clothing" in p_lower:
                                 attributes["Outfit"][prefix] = s_val
