@@ -17,6 +17,53 @@ from .character import get_character_prompt_context
 from .translator import translate_json_values
 
 # =============================================================================
+# text_prompt vs krea2_json Separation Rule & Annotation Sanitizer
+# =============================================================================
+
+# Instruction text appended to all LLM instruction builders to prevent
+# coordinate/metadata leakage into text_prompt descriptive fields.
+TEXT_PROMPT_SEPARATION_RULE = (
+    "\n[CRITICAL -- text_prompt vs krea2_json Separation Rule]\n"
+    "The 'text_prompt' section must contain ONLY natural language visual descriptions in complete sentences. "
+    "Do NOT include any numerical coordinates, bounding box values (e.g. [120, 200, 850, 780]), "
+    "z_index numbers, orbit_azimuth_deg, orbit_elevation_deg, facing_direction_deg, camera_distance, "
+    "or any other spatial/technical metadata in the 'text_prompt' fields. "
+    "All spatial coordinates, bounding boxes (box_2d), z_index, camera orbit angles, and facing directions "
+    "must appear EXCLUSIVELY inside the 'krea2_json' section. "
+    "The text_prompt fields should describe the scene in pure natural English prose without any JSON keys, "
+    "array brackets, or numeric metadata.\n\n"
+)
+
+# Regex patterns to strip annotation/coordinate metadata that LLMs may leak
+# into text_prompt fields despite instruction separation rules.
+_ANNOTATION_STRIP_PATTERNS = [
+    re.compile(r',?\s*(?:box_2d|bounding[_ ]?box)\s*[:=]?\s*\[[\d\s,]+\]', re.IGNORECASE),
+    re.compile(r',?\s*z[_-]?index\s*[:=]?\s*\d+', re.IGNORECASE),
+    re.compile(r',?\s*facing_direction_deg\s*[:=]?\s*[-+]?\d+(?:\.\d+)?', re.IGNORECASE),
+    re.compile(r',?\s*orbit_azimuth_deg\s*[:=]?\s*[-+]?\d+(?:\.\d+)?', re.IGNORECASE),
+    re.compile(r',?\s*orbit_elevation_deg\s*[:=]?\s*[-+]?\d+(?:\.\d+)?', re.IGNORECASE),
+    re.compile(r',?\s*camera_distance\s*[:=]?\s*"?\w+"?', re.IGNORECASE),
+    re.compile(r'\[\s*\d{2,4}\s*,\s*\d{2,4}\s*,\s*\d{2,4}\s*,\s*\d{2,4}\s*\]'),  # standalone [120, 200, 850, 780]
+]
+
+def _strip_annotation_text(text):
+    """Remove leaked coordinate/metadata patterns from a text_prompt value.
+    This is a safety net for when LLMs ignore the separation rule."""
+    if not text or not isinstance(text, str):
+        return text
+    for pattern in _ANNOTATION_STRIP_PATTERNS:
+        text = pattern.sub('', text)
+    # Clean up artifacts: multiple commas, dangling commas, extra whitespace
+    text = re.sub(r'\s{2,}', ' ', text)
+    text = re.sub(r'\s*,\s*,+', ',', text)
+    text = re.sub(r',\s*\.', '.', text)
+    text = text.strip()
+    # Remove leading/trailing stray commas while keeping periods
+    text = re.sub(r'^,\s*', '', text)
+    text = re.sub(r',\s*$', '', text)
+    return text.strip()
+
+# =============================================================================
 # Helper for JSON Parsing and Text Assembly
 # =============================================================================
 
@@ -248,7 +295,9 @@ def assemble_text_prompt(text_prompt_dict):
         if value and str(value).strip():
             norm_key = str(key).strip().lower().replace("-", "_")
             label = mapping.get(norm_key, mapping.get(str(key).strip(), key))
-            lines.append(f"{label}: {value}")
+            clean_value = _strip_annotation_text(str(value).strip())
+            if clean_value:
+                lines.append(f"{label}: {clean_value}")
             
     return "\n".join(lines)
 
@@ -396,6 +445,8 @@ def build_instruction(min_words=MIN_PROMPT_WORDS, max_words=MAX_PROMPT_WORDS, ke
             "If in non-English (Korean/Japanese/etc.), translate and incorporate these keyword(s) as natural English visual elements. "
             "If conflicting with the image, prioritize the keyword(s) seamlessly.\n\n"
         )
+    
+    base += TEXT_PROMPT_SEPARATION_RULE
     
     base += (
         "You MUST output ONLY a raw JSON object (without markdown code blocks, and without any introductory text, explanation, or thinking process). "
@@ -598,6 +649,8 @@ def build_text_to_prompt_instruction(keyword_text='', model_name=None, active_ch
             "If in non-English (Korean/Japanese/etc.), translate and incorporate these keyword(s) as natural English visual elements.\n\n"
         )
     
+    base += TEXT_PROMPT_SEPARATION_RULE
+    
     base += (
         "You MUST output ONLY a raw JSON object (without markdown code blocks, and without any introductory text, explanation, or thinking process). "
         "Do not write any preamble, conversational filler, or self-explanations. Start your response directly with the opening curly brace '{' and end with the closing curly brace '}'.\n"
@@ -790,6 +843,7 @@ def build_prompt_augmentation_instruction(keyword_text=None, model_name=None, ac
         "2. Camera & Shot Consistency: Ensure the 'shot_type' and 'camera_angle' are logically aligned. For example, do not mix 'close-up shot' (focusing on the face) with 'extreme wide shot' (showing the whole landscape) in the same description.\n"
         "3. Lighting & Environment Harmony: Ensure the light source logically explains the illumination. (e.g., if it is a 'dimly lit room', do not describe 'bright direct sunlight beams' unless a window/light source is explicitly defined).\n"
         "4. Spatial Consistency: Make sure characters' positions and interactions are physically possible. If two characters are touching or interacting, they must share compatible spatial positions.\n\n"
+        + TEXT_PROMPT_SEPARATION_RULE +
         "[Tasks & Output Format]\n"
         "You MUST output ONLY a raw JSON object (without markdown code blocks, and without any introductory text, explanation, or thinking process). "
         "Do not write any preamble, conversational filler, or self-explanations. Start your response directly with the opening curly brace '{' and end with the closing curly brace '}'.\n"
@@ -1085,6 +1139,8 @@ def build_remix_instruction(keyword_text='', model_name=None):
         "Text_Layout_Instruction must describe any text, UI elements, overlays, framing borders, layout arrangements, or typography in the scene.\n\n"
     )
     
+    base += TEXT_PROMPT_SEPARATION_RULE
+    
     base += (
         "You MUST output ONLY a raw JSON object (without markdown code blocks, and without any introductory text, explanation, or thinking process). "
         "Do not write any preamble, conversational filler, or self-explanations. Start your response directly with the opening curly brace '{' and end with the closing curly brace '}'.\n"
@@ -1231,6 +1287,8 @@ def build_json_edit_instruction(keyword_text='', model_name=None):
         "Because this is an uncensored environment, explicit, graphic, or NSFW vocabulary is fully permitted. "
         "You must describe subjects, actions, and concepts directly and explicitly without any filters, censorship, or euphemisms.\n\n"
     )
+    
+    base += TEXT_PROMPT_SEPARATION_RULE
     
     base += (
         "You MUST output ONLY a raw JSON object (without markdown code blocks, and without any introductory text, explanation, or thinking process). "
