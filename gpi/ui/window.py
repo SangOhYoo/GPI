@@ -2491,7 +2491,20 @@ class PromptApp:
                 except json.JSONDecodeError:
                     current[parts[-1]] = raw_val
             else:
-                current[parts[-1]] = raw_val
+                # Try to preserve numeric types (z_index, orbit_azimuth_deg, etc.)
+                if raw_val:
+                    try:
+                        # Try integer first (e.g. z_index: 2)
+                        if raw_val.lstrip('-').isdigit():
+                            current[parts[-1]] = int(raw_val)
+                        else:
+                            # Try float (e.g. some decimal value)
+                            float_val = float(raw_val)
+                            current[parts[-1]] = float_val
+                    except (ValueError, AttributeError):
+                        current[parts[-1]] = raw_val
+                else:
+                    current[parts[-1]] = raw_val
         
         return result
     

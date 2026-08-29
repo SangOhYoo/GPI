@@ -10,6 +10,15 @@ USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 DELIMITER = "\n<<<GPI_SEP>>>\n"
 SPLIT_REGEX = re.compile(r'\s*<<<\s*GPI_SEP\s*>>>\s*')
 
+# Keys whose string values should NOT be translated (technical identifiers, enum values)
+SKIP_TRANSLATE_KEYS = {
+    "camera_distance", "category", "visual_priority", "aspect_ratio",
+    "orbit_azimuth_deg", "orbit_elevation_deg", "z_index",
+    "facing_direction_deg", "name", "character_id", "total_character_count",
+    "genre", "composition_layout", "shot_type", "composition_rule",
+    "medium", "render_texture"
+}
+
 def _call_google_m(text, target_lang):
     """Google Web Translation mobile endpoint - highly resilient and not easily rate-limited."""
     tl = 'zh-CN' if target_lang == 'zh' else target_lang
@@ -147,6 +156,9 @@ def translate_json_values(json_obj, target_lang='ko'):
                 collect_strings(v, current_path + [i])
         elif isinstance(obj, str):
             if obj.strip(): # Only collect non-empty strings
+                # Skip translation for technical/enum keys
+                if current_path and isinstance(current_path[-1], str) and current_path[-1] in SKIP_TRANSLATE_KEYS:
+                    return
                 paths_and_texts.append((current_path, obj))
     
     collect_strings(json_obj, [])
