@@ -21,17 +21,35 @@ import configparser
 
 def get_local_llama_cpp_models():
     models = []
-    try:
-        import urllib.request
-        import json
+    presets_path = Path("c:/llama-cpp/presets.ini")
+    if presets_path.exists():
+        try:
+            parser = configparser.ConfigParser(strict=False)
+            parser.read(presets_path, encoding="utf-8")
+            for section in parser.sections():
+                models.append(f"local-llama-cpp: {section}")
+        except Exception:
+            try:
+                parser = configparser.ConfigParser(strict=False)
+                parser.read(presets_path, encoding="utf-8-sig")
+                for section in parser.sections():
+                    models.append(f"local-llama-cpp: {section}")
+            except Exception:
+                pass
 
-        req = urllib.request.Request("http://localhost:8081/v1/models")
-        with urllib.request.urlopen(req, timeout=2.0) as response:
-            data = json.loads(response.read().decode("utf-8"))
-            for model in data.get("data", []):
-                models.append(f"local-llama-cpp: {model['id']}")
-    except Exception:
-        pass
+    if not models:
+        try:
+            import urllib.request
+            import json
+
+            req = urllib.request.Request("http://localhost:8081/v1/models")
+            with urllib.request.urlopen(req, timeout=2.0) as response:
+                data = json.loads(response.read().decode("utf-8"))
+                for model in data.get("data", []):
+                    models.append(f"local-llama-cpp: {model['id']}")
+        except Exception:
+            pass
+
     if not models:
         models.append("local-llama-cpp")
     return models

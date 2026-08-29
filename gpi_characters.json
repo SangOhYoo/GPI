@@ -2,7 +2,7 @@
   "characters": [
     {
       "id": "9fda60d1-3a1b-4fa2-9d1d-cb7121867463",
-      "name": "Park Joo Mi",
+      "name": "Park JooMi",
       "demographics": {
         "age": "34",
         "gender": "Female",
@@ -89,18 +89,35 @@
       "id": "0149b2ed-3c1a-40aa-a447-8dd1945a6c4c",
       "name": "Lee Junwoo",
       "demographics": {
-        "age": "19",
+        "age": "14",
         "gender": "male",
         "ethnicity": "asian / korean"
       },
       "appearance": {
         "hair": "cute short hair with neat straight bangs",
         "facial_features": "round face, bright dark eyes, rosy cheeks, innocent and cheerful smile",
-        "body_type": "lean youthful build, slender frame"
+        "body_type": "lean youthful build, slender frame, He is smaller in stature than a woman,"
       },
       "default_outfit": "naked,",
       "personality_cues": "playful, innocent, energetic, bright expression, curious gaze",
       "key_relationships": "Friend of Park Jumi's son, frequent visitor to Jumi's house"
+    },
+    {
+      "id": "74969fdc-62b6-4da5-9bf2-0726dda585d6",
+      "name": "Elena Miller",
+      "demographics": {
+        "age": "25",
+        "gender": "female",
+        "ethnicity": "caucasian / american"
+      },
+      "appearance": {
+        "hair": "long voluminous wavy blonde hair, silky texture with soft golden highlights",
+        "facial_features": "striking deep crystal-blue eyes, full lips, high cheekbones, radiant glowing skin, gorgeous symmetrical supermodel face",
+        "body_type": "supermodel physique, extreme hourglass figure, slim defined waist, voluptuous curves, wide healthy hips, tall and toned proportions"
+      },
+      "default_outfit": "form-fitting elegant silk slip dress, delicate gold necklace, high heels",
+      "personality_cues": "alluring confidence, magnetic presence, graceful and relaxed posture, captivating smile, intense and charming eye contact",
+      "key_relationships": "Acquaintance / High-fashion model"
     }
   ]
 }

@@ -65,6 +65,7 @@ class PromptApp:
 
         # Variable Initialization
         self.model_var = tk.StringVar(value=self.model_name)
+        self.enable_thinking_var = tk.BooleanVar(value=True)
         self.api_key_name_var = tk.StringVar(value="Default")
         self.file_path_var = tk.StringVar(value="선택된 파일 없음")
         self.keyword_var = tk.StringVar(value=DEFAULT_KEYWORD)
@@ -231,6 +232,9 @@ class PromptApp:
         self.api_key_combo = ttk.Combobox(top_panel, textvariable=self.api_key_name_var, state="readonly", width=15)
         self.api_key_combo.pack(side="left", padx=SPACING["sm"])
         self.api_key_combo.bind("<<ComboboxSelected>>", self.on_api_key_change)
+
+        self.thinking_check = ttk.Checkbutton(top_panel, text="추론 사용", variable=self.enable_thinking_var)
+        self.thinking_check.pack(side="left", padx=(SPACING["md"], 0))
         
         ttk.Button(top_panel, text="즐겨찾기 관리", command=self.open_preset_manager).pack(side="right", padx=(0, SPACING["sm"]))
         ttk.Button(top_panel, text="캐릭터 관리", command=self.open_character_manager).pack(side="right", padx=(0, SPACING["sm"]))
@@ -928,7 +932,8 @@ class PromptApp:
                     cancel_check=lambda: self.cancel_requested,
                     active_character_ids=self.get_active_character_ids(),
                     pose_override=pose_override,
-                    expression_override=expression_override
+                    expression_override=expression_override,
+                    enable_thinking=self.enable_thinking_var.get()
                 )
                 
                 self.root.after(0, lambda: self.on_success(result, count))
@@ -1990,7 +1995,7 @@ class PromptApp:
                         chunk = chunk[first_tag_pos + len(first_tag_str):]
                 
                 model_name = self.model_var.get()
-                thinking_level = self.thinking_level_var.get() if hasattr(self, "thinking_level_var") else None
+                thinking_level = self.model_thinking_level
                 pose_override, expression_override = self._get_override_presets()
                 result, count = generate_prompt_augmentation_logic(
                     text_input=text_content,
@@ -2003,7 +2008,8 @@ class PromptApp:
                     cancel_check=lambda: self.cancel_requested,
                     active_character_ids=self.get_active_character_ids(),
                     pose_override=pose_override,
-                    expression_override=expression_override
+                    expression_override=expression_override,
+                    enable_thinking=self.enable_thinking_var.get()
                 )
                 
                 result["input_text"] = text_content
@@ -2121,7 +2127,8 @@ class PromptApp:
                     cancel_check=lambda: self.cancel_requested,
                     active_character_ids=self.get_active_character_ids(),
                     pose_override=pose_override,
-                    expression_override=expression_override
+                    expression_override=expression_override,
+                    enable_thinking=self.enable_thinking_var.get()
                 )
                 
                 # Store original text in result
@@ -2363,6 +2370,33 @@ class PromptApp:
             "Props_Environment_Details": "🏠 소품/환경",
             "Camera_Composition": "📷 카메라/구도",
             "Style_Texture": "🖌️ 스타일/질감",
+            "camera_3d_transform": "🎥 3D 카메라 좌표계 (Camera 3D Orbit)",
+            "orbit_azimuth_deg": "🔄 수평 회전각 (Azimuth/Yaw 0°~360°)",
+            "orbit_elevation_deg": "📐 수직 고도각 (Elevation/Pitch -90°~+90°)",
+            "camera_distance": "📏 촬영 거리 (Camera Distance)",
+            "z_index": "📶 깊이 레이어 (Z-Index / 1:전경, 2:중경, 3:배경)",
+            "facing_direction_deg": "🧭 피사체 시선/방향 (Facing Direction 0°~360°)",
+            "box_2d": "📦 바운딩 박스 (BBox [ymin, xmin, ymax, xmax])",
+            "spatial_layout": "📐 공간 배치 / 레이아웃 (Spatial Layout)",
+            "spatial_objects": "🎯 검출/배치 객체 (Spatial Objects)",
+            "props_and_objects": "📦 소품 및 객체 (Props & Objects)",
+            "category": "🏷️ 객체 분류 (Category)",
+            "material": "🧱 재질 및 질감 (Material)",
+            "state": "⚡ 상태 및 효과 (State & Effects)",
+            "interaction": "🤝 상호작용 / 배치 (Interaction)",
+            "attributes": "⚙️ 세부 속성 (Attributes)",
+            "label": "📌 명칭 및 설명 (Label)",
+            "subject": "👤 주요 피사체 (Subject)",
+            "environment": "🏞️ 환경 및 배경 (Environment)",
+            "composition_and_camera": "📷 구도 및 카메라 (Composition & Camera)",
+            "lighting_and_atmosphere": "💡 조명 및 분위기 (Lighting & Atmosphere)",
+            "art_style_and_materials": "🎨 스타일 및 재질 (Style & Materials)",
+            "group_formation": "👥 그룹 대형 (Group Formation)",
+            "scene_metadata": "🎬 장면 메타데이터 (Scene Metadata)",
+            "photography_and_framing": "📸 촬영 및 프레이밍 (Photography & Framing)",
+            "lighting_and_color": "🌈 조명 및 색상 (Lighting & Color)",
+            "dynamism_and_texture": "✨ 동세 및 질감 (Dynamism & Texture)",
+            "environment_and_props": "🏰 환경 및 소품 (Environment & Props)",
         }
         
         def add_section(parent, section_key, section_data, prefix=""):
@@ -2565,7 +2599,8 @@ class PromptApp:
                     on_chunk=chunk_handler,
                     on_pass2_chunk=pass2_chunk_handler,
                     cancel_check=lambda: self.cancel_requested,
-                    active_character_ids=self.get_active_character_ids()
+                    active_character_ids=self.get_active_character_ids(),
+                    enable_thinking=self.enable_thinking_var.get()
                 )
                 
                 result["input_text"] = edited_json_text
@@ -2783,7 +2818,8 @@ class PromptApp:
                     on_chunk=chunk_handler,
                     on_pass2_chunk=pass2_chunk_handler,
                     cancel_check=lambda: self.cancel_requested,
-                    active_character_ids=self.get_active_character_ids()
+                    active_character_ids=self.get_active_character_ids(),
+                    enable_thinking=self.enable_thinking_var.get()
                 )
                 
                 result["input_text"] = assembled_text

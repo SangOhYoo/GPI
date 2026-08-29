@@ -38,7 +38,13 @@ def resolve_llama_api_key(api_key, model_name):
         presets_path = Path("c:/llama-cpp/presets.ini")
         if presets_path.exists():
             parser = configparser.ConfigParser(strict=False)
-            parser.read(presets_path, encoding='utf-8')
+            try:
+                parser.read(presets_path, encoding='utf-8')
+            except Exception:
+                try:
+                    parser.read(presets_path, encoding='utf-8-sig')
+                except Exception:
+                    pass
             if parser.has_section(section) and parser.has_option(section, 'api-key'):
                 return parser.get(section, 'api-key')
     return api_key
@@ -127,7 +133,7 @@ def download_image_from_url(url, cancel_check=None, bypass_size_limit=False):
     except urllib.error.URLError:
         raise RuntimeError("이미지 다운로드 중 네트워크 오류가 발생했습니다.")
 
-def call_llama_cpp(image_b64, mime_type, api_key, instruction, model_name="default"):
+def call_llama_cpp(image_b64, mime_type, api_key, instruction, model_name="default", enable_thinking=True):
     if mime_type not in ("image/jpeg", "image/png"):
         try:
             from PIL import Image
@@ -160,7 +166,8 @@ def call_llama_cpp(image_b64, mime_type, api_key, instruction, model_name="defau
         "temperature": 0.4,
         "max_tokens": 16384,
         "response_format": {"type": "json_object"},
-        "enable_thinking": False
+        "enable_thinking": bool(enable_thinking),
+        "chat_template_kwargs": {"enable_thinking": bool(enable_thinking)}
     }
     data = json.dumps(body).encode("utf-8")
     headers = {"Content-Type": "application/json"}
@@ -168,7 +175,7 @@ def call_llama_cpp(image_b64, mime_type, api_key, instruction, model_name="defau
         headers["Authorization"] = f"Bearer {api_key}"
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:
+        with urllib.request.urlopen(request, timeout=300) as response:
             res_data = json.loads(response.read().decode("utf-8"))
             return res_data["choices"][0]["message"]["content"].strip()
     except urllib.error.HTTPError as e:
@@ -177,10 +184,10 @@ def call_llama_cpp(image_b64, mime_type, api_key, instruction, model_name="defau
     except Exception as e:
         raise RuntimeError(f"로컬 LLM 호출 오류: {str(e)}")
 
-def call_gemini(image_b64, mime_type, api_key, instruction, model_name, thinking_level=None):
+def call_gemini(image_b64, mime_type, api_key, instruction, model_name, thinking_level=None, enable_thinking=True):
     if model_name.startswith("local-llama-cpp"):
         api_key = resolve_llama_api_key(api_key, model_name)
-        return call_llama_cpp(image_b64, mime_type, api_key, instruction, model_name)
+        return call_llama_cpp(image_b64, mime_type, api_key, instruction, model_name, enable_thinking=enable_thinking)
         
     url = API_URL_TEMPLATE.format(model=model_name)
     body = {
@@ -193,7 +200,9 @@ def call_gemini(image_b64, mime_type, api_key, instruction, model_name, thinking
         "generationConfig": {"temperature": 0.4, "topP": 0.9, "topK": 32, "maxOutputTokens": 8192},
         "safetySettings": SAFETY_SETTINGS_NONE
     }
-    if thinking_level:
+    if not enable_thinking:
+        body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
+    elif thinking_level:
         body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking_level}
     
     data = json.dumps(body).encode("utf-8")
@@ -205,14 +214,16 @@ def call_gemini(image_b64, mime_type, api_key, instruction, model_name, thinking
             res_data = json.loads(response.read().decode("utf-8"))
             candidate = res_data.get("candidates", [{}])[0]
             parts = candidate.get("content", {}).get("parts", [])
-            text = "".join([p.get("text", "") for p in parts if p.get("text")]).strip()
+            text = "".join([p.get("text", "") for p in parts if p.get("text") and not p.get("thought", False)]).strip()
+            if not text:
+                text = "".join([p.get("text", "") for p in parts if p.get("text")]).strip()
             if not text:
                 raise RuntimeError("API 응답이 비어있습니다. (안전 필터에 의해 차단되었거나 지원되지 않는 입력입니다.)")
             return text
     except Exception as e:
         raise RuntimeError(f"API 호출 오류: {str(e)}")
 
-def call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk=None, cancel_check=None, model_name="default"):
+def call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk=None, cancel_check=None, model_name="default", enable_thinking=True):
     if mime_type not in ("image/jpeg", "image/png"):
         try:
             from PIL import Image
@@ -246,7 +257,8 @@ def call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk=N
         "stream": True,
         "max_tokens": 16384,
         "response_format": {"type": "json_object"},
-        "enable_thinking": False
+        "enable_thinking": bool(enable_thinking),
+        "chat_template_kwargs": {"enable_thinking": bool(enable_thinking)}
     }
     data = json.dumps(body).encode("utf-8")
     headers = {"Content-Type": "application/json"}
@@ -257,7 +269,7 @@ def call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk=N
     combined = ""
     raw_buffer = ""
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:
+        with urllib.request.urlopen(request, timeout=300) as response:
             while True:
                 if cancel_check and cancel_check():
                     raise RuntimeError(CANCELLED_MESSAGE)
@@ -286,20 +298,20 @@ def call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk=N
                         # Handle stream (delta) or full response (message)
                         # IMPORTANT: Only collect 'content' for JSON parsing.
                         # 'reasoning_content' (thinking process from Qwen3/Gemma4) is
-                        # streamed to UI for display but excluded from the final result
-                        # to prevent JSON parse errors.
+                        # streamed to UI for display when enable_thinking is True,
+                        # but excluded from final result to prevent JSON parse errors.
                         chunk_content = ""
                         display_content = ""
                         if "delta" in choices[0]:
                             delta = choices[0]["delta"]
-                            if "reasoning_content" in delta and delta["reasoning_content"]:
+                            if enable_thinking and "reasoning_content" in delta and delta["reasoning_content"]:
                                 display_content += delta["reasoning_content"]
                             if "content" in delta and delta["content"]:
                                 chunk_content += delta["content"]
                                 display_content += delta["content"]
                         elif "message" in choices[0]:
                             msg = choices[0]["message"]
-                            if "reasoning_content" in msg and msg["reasoning_content"]:
+                            if enable_thinking and "reasoning_content" in msg and msg["reasoning_content"]:
                                 display_content += msg["reasoning_content"]
                             if "content" in msg and msg["content"]:
                                 chunk_content += msg["content"]
@@ -324,10 +336,10 @@ def call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk=N
     except Exception as e:
         raise RuntimeError(f"로컬 LLM 스트리밍 오류: {str(e)}")
 
-def call_gemini_stream(image_b64, mime_type, api_key, instruction, model_name, thinking_level=None, on_chunk=None, cancel_check=None):
+def call_gemini_stream(image_b64, mime_type, api_key, instruction, model_name, thinking_level=None, on_chunk=None, cancel_check=None, enable_thinking=True):
     if model_name.startswith("local-llama-cpp"):
         api_key = resolve_llama_api_key(api_key, model_name)
-        return call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk, cancel_check, model_name)
+        return call_llama_cpp_stream(image_b64, mime_type, api_key, instruction, on_chunk, cancel_check, model_name, enable_thinking=enable_thinking)
         
     url = API_STREAM_URL_TEMPLATE.format(model=model_name)
     body = {
@@ -340,7 +352,9 @@ def call_gemini_stream(image_b64, mime_type, api_key, instruction, model_name, t
         "generationConfig": {"temperature": 0.4, "maxOutputTokens": 8192},
         "safetySettings": SAFETY_SETTINGS_NONE
     }
-    if thinking_level:
+    if not enable_thinking:
+        body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
+    elif thinking_level:
         body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking_level}
         
     data = json.dumps(body).encode("utf-8")
@@ -371,8 +385,14 @@ def call_gemini_stream(image_b64, mime_type, api_key, instruction, model_name, t
                         candidate = data_json.get("candidates", [{}])[0]
                         parts = candidate.get("content", {}).get("parts", [])
                         for p in parts:
-                            if p.get("text"):
-                                piece = p.get("text")
+                            is_thought = p.get("thought", False)
+                            piece = p.get("text", "")
+                            if not piece:
+                                continue
+                            if is_thought:
+                                if enable_thinking and on_chunk:
+                                    on_chunk(piece)
+                            else:
                                 combined += piece
                                 if on_chunk:
                                     on_chunk(piece)
@@ -385,7 +405,7 @@ def call_gemini_stream(image_b64, mime_type, api_key, instruction, model_name, t
     except Exception as e:
         raise RuntimeError(f"API 스트리밍 오류: {str(e)}")
 
-def call_llama_cpp_text(user_text, api_key, instruction, model_name="default"):
+def call_llama_cpp_text(user_text, api_key, instruction, model_name="default", enable_thinking=True):
     req_model = model_name.split(":", 1)[1].strip() if model_name and ":" in model_name else (model_name or "default")
     url = "http://127.0.0.1:8081/v1/chat/completions"
     body = {
@@ -397,7 +417,8 @@ def call_llama_cpp_text(user_text, api_key, instruction, model_name="default"):
         "temperature": 0.5,
         "max_tokens": 16384,
         "response_format": {"type": "json_object"},
-        "enable_thinking": False
+        "enable_thinking": bool(enable_thinking),
+        "chat_template_kwargs": {"enable_thinking": bool(enable_thinking)}
     }
     data = json.dumps(body).encode("utf-8")
     headers = {"Content-Type": "application/json"}
@@ -405,7 +426,7 @@ def call_llama_cpp_text(user_text, api_key, instruction, model_name="default"):
         headers["Authorization"] = f"Bearer {api_key}"
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:
+        with urllib.request.urlopen(request, timeout=300) as response:
             res_data = json.loads(response.read().decode("utf-8"))
             return res_data["choices"][0]["message"]["content"].strip()
     except urllib.error.HTTPError as e:
@@ -414,10 +435,10 @@ def call_llama_cpp_text(user_text, api_key, instruction, model_name="default"):
     except Exception as e:
         raise RuntimeError(f"로컬 LLM 호출 오류 (Text): {str(e)}")
 
-def call_gemini_text(user_text, api_key, instruction, model_name, thinking_level=None):
+def call_gemini_text(user_text, api_key, instruction, model_name, thinking_level=None, enable_thinking=True):
     if model_name.startswith("local-llama-cpp"):
         api_key = resolve_llama_api_key(api_key, model_name)
-        return call_llama_cpp_text(user_text, api_key, instruction, model_name)
+        return call_llama_cpp_text(user_text, api_key, instruction, model_name, enable_thinking=enable_thinking)
         
     url = API_URL_TEMPLATE.format(model=model_name)
     body = {
@@ -430,7 +451,9 @@ def call_gemini_text(user_text, api_key, instruction, model_name, thinking_level
         "generationConfig": {"temperature": 0.5, "topP": 0.9, "topK": 32, "maxOutputTokens": 8192},
         "safetySettings": SAFETY_SETTINGS_NONE
     }
-    if thinking_level:
+    if not enable_thinking:
+        body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
+    elif thinking_level:
         body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking_level}
     
     data = json.dumps(body).encode("utf-8")
@@ -442,14 +465,16 @@ def call_gemini_text(user_text, api_key, instruction, model_name, thinking_level
             res_data = json.loads(response.read().decode("utf-8"))
             candidate = res_data.get("candidates", [{}])[0]
             parts = candidate.get("content", {}).get("parts", [])
-            text = "".join([p.get("text", "") for p in parts if p.get("text")]).strip()
+            text = "".join([p.get("text", "") for p in parts if p.get("text") and not p.get("thought", False)]).strip()
+            if not text:
+                text = "".join([p.get("text", "") for p in parts if p.get("text")]).strip()
             if not text:
                 raise RuntimeError("API 응답이 비어있습니다. (안전 필터에 의해 차단되었거나 지원되지 않는 입력입니다.)")
             return text
     except Exception as e:
         raise RuntimeError(f"API 호출 오류 (Text): {str(e)}")
 
-def call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk=None, cancel_check=None, model_name="default"):
+def call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk=None, cancel_check=None, model_name="default", enable_thinking=True):
     req_model = model_name.split(":", 1)[1].strip() if model_name and ":" in model_name else (model_name or "default")
     url = "http://127.0.0.1:8081/v1/chat/completions"
     body = {
@@ -462,7 +487,8 @@ def call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk=None, c
         "stream": True,
         "max_tokens": 16384,
         "response_format": {"type": "json_object"},
-        "enable_thinking": False
+        "enable_thinking": bool(enable_thinking),
+        "chat_template_kwargs": {"enable_thinking": bool(enable_thinking)}
     }
     data = json.dumps(body).encode("utf-8")
     headers = {"Content-Type": "application/json"}
@@ -473,7 +499,7 @@ def call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk=None, c
     combined = ""
     raw_buffer = ""
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:
+        with urllib.request.urlopen(request, timeout=300) as response:
             while True:
                 if cancel_check and cancel_check():
                     raise RuntimeError(CANCELLED_MESSAGE)
@@ -502,19 +528,20 @@ def call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk=None, c
                         # Handle stream (delta) or full response (message)
                         # IMPORTANT: Only collect 'content' for JSON parsing.
                         # 'reasoning_content' (thinking process from Qwen3/Gemma4) is
-                        # streamed to UI for display but excluded from the final result.
+                        # streamed to UI for display when enable_thinking is True,
+                        # but excluded from final result.
                         chunk_content = ""
                         display_content = ""
                         if "delta" in choices[0]:
                             delta = choices[0]["delta"]
-                            if "reasoning_content" in delta and delta["reasoning_content"]:
+                            if enable_thinking and "reasoning_content" in delta and delta["reasoning_content"]:
                                 display_content += delta["reasoning_content"]
                             if "content" in delta and delta["content"]:
                                 chunk_content += delta["content"]
                                 display_content += delta["content"]
                         elif "message" in choices[0]:
                             msg = choices[0]["message"]
-                            if "reasoning_content" in msg and msg["reasoning_content"]:
+                            if enable_thinking and "reasoning_content" in msg and msg["reasoning_content"]:
                                 display_content += msg["reasoning_content"]
                             if "content" in msg and msg["content"]:
                                 chunk_content += msg["content"]
@@ -539,10 +566,10 @@ def call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk=None, c
     except Exception as e:
         raise RuntimeError(f"로컬 LLM 스트리밍 오류 (Text): {str(e)}")
 
-def call_gemini_text_stream(user_text, api_key, instruction, model_name, thinking_level=None, on_chunk=None, cancel_check=None):
+def call_gemini_text_stream(user_text, api_key, instruction, model_name, thinking_level=None, on_chunk=None, cancel_check=None, enable_thinking=True):
     if model_name.startswith("local-llama-cpp"):
         api_key = resolve_llama_api_key(api_key, model_name)
-        return call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk, cancel_check, model_name)
+        return call_llama_cpp_text_stream(user_text, api_key, instruction, on_chunk, cancel_check, model_name, enable_thinking=enable_thinking)
         
     url = API_STREAM_URL_TEMPLATE.format(model=model_name)
     body = {
@@ -555,7 +582,9 @@ def call_gemini_text_stream(user_text, api_key, instruction, model_name, thinkin
         "generationConfig": {"temperature": 0.5, "maxOutputTokens": 8192},
         "safetySettings": SAFETY_SETTINGS_NONE
     }
-    if thinking_level:
+    if not enable_thinking:
+        body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
+    elif thinking_level:
         body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": thinking_level}
         
     data = json.dumps(body).encode("utf-8")
@@ -586,8 +615,14 @@ def call_gemini_text_stream(user_text, api_key, instruction, model_name, thinkin
                         candidate = data_json.get("candidates", [{}])[0]
                         parts = candidate.get("content", {}).get("parts", [])
                         for p in parts:
-                            if p.get("text"):
-                                piece = p.get("text")
+                            is_thought = p.get("thought", False)
+                            piece = p.get("text", "")
+                            if not piece:
+                                continue
+                            if is_thought:
+                                if enable_thinking and on_chunk:
+                                    on_chunk(piece)
+                            else:
                                 combined += piece
                                 if on_chunk:
                                     on_chunk(piece)
